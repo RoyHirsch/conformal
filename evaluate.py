@@ -31,7 +31,7 @@ def load_pickle(file_path):
     return data
 
 
-def split_data(data, n_calib, seed=None):
+def split_data(data, n_calib, n_valid=None, seed=None):
     labels = data['labels']
     n = len(labels)
     idx = np.arange(n)
@@ -40,15 +40,26 @@ def split_data(data, n_calib, seed=None):
         np.random.seed = seed
     np.random.shuffle(idx)
 
-    valid_idx = idx[n_calib:]
     calib_idx = idx[:n_calib]
+    if n_valid:
+        valid_idx = idx[n_calib:n_calib+n_valid]
+    else:
+        valid_idx = idx[n_calib:]
     
-    valid_data = {'embeds': data['embeds'][valid_idx, :],
-                 'preds': data['preds'][valid_idx, :],
-                 'labels': data['labels'][valid_idx]}
-    calib_data = {'embeds': data['embeds'][calib_idx, :],
-                 'preds': data['preds'][calib_idx, :],
-                 'labels': data['labels'][calib_idx]}
+    
+    if 'embeds' in data:
+        calib_data = {'embeds': data['embeds'][calib_idx, :],
+                    'preds': data['preds'][calib_idx, :],
+                    'labels': data['labels'][calib_idx]}
+
+        valid_data = {'embeds': data['embeds'][valid_idx, :],
+                    'preds': data['preds'][valid_idx, :],
+                    'labels': data['labels'][valid_idx]}
+    else:
+        calib_data = {'preds': data['preds'][calib_idx, :],
+            'labels': data['labels'][calib_idx].astype(int)}
+        valid_data = {'preds': data['preds'][valid_idx, :],
+                    'labels': data['labels'][valid_idx].astype(int)}
 
     return valid_data, calib_data
 
@@ -100,25 +111,55 @@ class RegScore:
 class APSScore:
     @staticmethod
     def score(logits, labels, T=1):
-        scores = softmax(logits/T, axis=1)
-        cal_pi = scores.argsort(1)[:, ::-1]
-        cal_srt = np.take_along_axis(scores, cal_pi, axis=1).cumsum(axis=1)
-        return np.take_along_axis(cal_srt, cal_pi.argsort(axis=1), axis=1)[
-            range(len(labels)), labels]
+        n = len(labels)
+        softmax_logits = softmax(logits / T, axis=1)
+        y_true_scores = softmax_logits[np.arange(n), labels]
+        mask = softmax_logits >= np.expand_dims(y_true_scores, 1)
+        return (mask * softmax_logits).sum(1)
+
+        # y_true_scores = softmax_logits[np.arange(n), labels]
+        # cal_pi = softmax_logits.argsort(1)[:, ::-1]
+        # cal_srt = np.take_along_axis(softmax_logits, cal_pi, axis=1).cumsum(axis=1)
+        # return np.take_along_axis(cal_srt, cal_pi.argsort(axis=1), axis=1)[
+        #     range(len(labels)), labels]
     
     @staticmethod
     def get_sets(logits, qhat, T=1):
-        scores = softmax(logits/T, axis=1)
-        val_pi = scores.argsort(1)[:, ::-1]
-        val_srt = np.take_along_axis(scores, val_pi, axis=1).cumsum(axis=1)
-        return np.take_along_axis(val_srt <= qhat, val_pi.argsort(axis=1), axis=1)
+        scores = softmax(logits / T, axis=1)
+
+        asending_inds = scores.argsort(1)[:, ::-1]
+        asending_scores = np.sort(scores, axis=1)[:, ::-1]
+        cumsum_asending_scores = asending_scores.cumsum(axis=1)
+        
+        sets = np.zeros_like(scores)
+        for i, row in enumerate(cumsum_asending_scores):
+            indices = np.where(row >= qhat)[0]
+            if len(indices) > 0:
+                sets[i, asending_inds[i, :indices[0]]] = 1
+            else:
+                # empty sets
+                continue
+        return sets
+
+    # def get_sets(logits, qhat, T=1):
+    #     scores = softmax(logits/T, axis=1)
+    #      = scores.argsort(1)[:, ::-1]
+    #     val_srt = np.take_along_axis(scores, val_pi, axis=1).cumsum(axis=1)
+    #     return np.take_along_axis(val_srt <= qhat, val_pi.argsort(axis=1), axis=1)
+
+
+    # @staticmethod
+    # def get_sets(logits, qhat, T=1):
+    #     scores = softmax(logits/T, axis=1)
+    #     ordered = np.sort(scores, axis=1)[:,::-1]
+    #     cumsum = np.cumsum(ordered, axis=1) 
+    #     return (cumsum <= qhat)
 
 
 def calc_conf_qhat(logits, targets, T=1, alpha=0.1, score_fuc=RegScore.score):
     n = len(targets)
     scores = score_fuc(logits, targets, T)
-    qhat = np.quantile(
-        scores, np.ceil((n + 1) * (1 - alpha)) / n, interpolation="higher")
+    qhat = np.quantile(scores, 1-alpha, interpolation="higher")
     return qhat 
 
 
@@ -180,12 +221,13 @@ if __name__ == "__main__":
     batch_size = 128
     num_worker = 4
     alpha = 0.1
-    ts = True
+    ts = False
     seed = None
-    file_name = '/home/royhirsch/conformal/data/embeds_n_logits/imnet1k_r18/valid.pickle'
+    file_name = '/home/royhirsch/conformal/data/embeds_n_logits/imnet1k_r152/valid.pickle'
 
-    reps = 20
+    reps = 1
     data = load_pickle(file_name)
+
     mets_agg = MetsAgg()
     for s in tqdm(range(reps)):
         valid_data, calib_data = split_data(data, n_calib, seed=str)
@@ -200,8 +242,8 @@ if __name__ == "__main__":
     for s in tqdm(range(reps)):
         valid_data, calib_data = split_data(data, n_calib, seed=s)
         mets = calibrate_and_calc(calib_data['preds'], calib_data['labels'],
-                                valid_data['preds'], valid_data['labels'],
-                                score_class=APSScore, alpha=alpha, ts=ts)
+                                  valid_data['preds'], valid_data['labels'],
+                                  score_class=APSScore, alpha=alpha, ts=ts)
         mets_agg.update(mets)
         # results_print(mets, title='Reg')
     results_print(mets_agg.calc(), title='Mean APS')

@@ -4,7 +4,6 @@ sys.path.insert(1, os.path.join(sys.path[0], './conformal_classification/'))
 import torch
 import torch.nn as nn
 import torchvision
-import torchvision.transforms as transforms
 import numpy as np
 import pickle
 from tqdm import tqdm
@@ -91,32 +90,34 @@ def get_model(model_name):
 
 
 if __name__ == "__main__":
-    device = torch.device('cuda:6')
+    ###############
+    # PARAMS
+    ###############
     model_name = 'resnet18'
+    out_dir = '/home/royhirsch/conformal/data/embeds_n_logits/imnet1k_r18'
+
+    device = torch.device('cuda:0')
     batch_size = 128
     num_workers = 4
     data_dir = '/home/royhirsch/conformal/conformal_classification/imagenet_val'
-    out_dir = '/home/royhirsch/conformal/data/embeds_n_logits/imnet1k_r18'
+
+
+    ###############
+    # MAIN
+    ###############
+
     model, transform = get_model(model_name)
+    model = model.to(device)
+    model.eval()
 
-    # transform = transforms.Compose([
-    #                 transforms.Resize(256),
-    #                 transforms.CenterCrop(224),
-    #                 transforms.ToTensor(),
-    #                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
-    #                                      std= [0.229, 0.224, 0.225])
-    #             ])
-
-    valid_dataset = torchvision.datasets.ImageFolder(data_dir, transform)
-
+    valid_dataset = torchvision.datasets.ImageFolder(data_dir, 
+                                                     transform)
     valid_loader = torch.utils.data.DataLoader(valid_dataset,
                                                batch_size=batch_size,
                                                num_workers=num_workers,
                                                shuffle=False,
                                                pin_memory=True)
 
-    model = model.to(device)
-    model.eval()
 
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
