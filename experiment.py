@@ -12,6 +12,18 @@ from trainer import Trainer, get_optimizer, get_scheduler
 import utils as utils
 
 
+def predict_and_report_mets(conformal_module, trainer, model, dl, t, fold_name=''):
+    predict_out = trainer.predict(model, dl)
+    sets = conformal_module.get_sets(
+        predict_out['pred_scores'],
+        predict_out['true_scores'],
+        predict_out['cls_logits'],
+        t)
+    mets = conformal_module.get_conformal_mets(sets, predict_out['cls_labels'])
+    utils.log(f'{fold_name} mets', mets)
+    return predict_out, mets
+
+
 def get_config():
 
     def corrections(config):
@@ -51,14 +63,14 @@ def get_config():
     cfg.hidden_dim = None
 
     # optim
-    cfg.optimizer_name = 'sgd'
+    cfg.optimizer_name = 'adamw'
     cfg.scheduler_name = 'none'
-    cfg.criteria_name = 'mse'
-    cfg.lr = 1e-2
-    cfg.wd = 1e-4
+    cfg.criteria_name = 'bce'
+    cfg.lr = 5e-4
+    cfg.wd = 1e-6
 
     # train
-    cfg.num_epochs = 40
+    cfg.num_epochs = 50
     cfg.val_interval = 1
     cfg.save_interval = 100
     cfg.monitor_met_name = 'val_loss'
@@ -107,10 +119,10 @@ def experiment(config):
         train_dl, valid_dl, t=t, alpha=config.alpha)
     utils.log('Baseline mets', baseline_mets)
 
+    # if use clipping, need to re-calc the scores for the datasets
     if config.use_score_clipping:
         conformal_module.set_score_clipping(baseline_mets['qhat'])
-
-    train_dl, valid_dl, t = get_dataloaders(config, conformal_module)
+        train_dl, valid_dl, t = get_dataloaders(config, conformal_module)
 
     model = NN(hidden_dim=config.hidden_dim,
                norm=config.norm,
@@ -139,20 +151,12 @@ def experiment(config):
                 scheduler=scheduler,
                 valid_loader=valid_dl)
     
-    val_predict_out = trainer.predict(model, valid_dl)
-    conformal_module.randomized = False
-    sets = conformal_module.get_sets(
-        val_predict_out['pred_scores'], val_predict_out['true_scores'],
-        val_predict_out['cls_logits'], t)
-    val_mets = conformal_module.get_conformal_mets(sets, val_predict_out['cls_labels'])
-    utils.log('Val mets', val_mets)
+    val_predict_out, val_mets = predict_and_report_mets(
+        conformal_module, trainer, model, valid_dl, t, fold_name='Valid')
 
-    train_predict_out = trainer.predict(model, train_dl)
-    sets = conformal_module.get_sets(
-        train_predict_out['pred_scores'], train_predict_out['true_scores'],
-        train_predict_out['cls_logits'], t)
-    train_mets = conformal_module.get_conformal_mets(sets, train_predict_out['cls_labels'])
-    utils.log('Train mets', train_mets)
+    train_predict_out, train_mets = predict_and_report_mets(
+        conformal_module, trainer, model, train_dl, t, fold_name='Train')
+    
     return trainer.history, val_predict_out, train_predict_out, val_mets, train_mets
 
 

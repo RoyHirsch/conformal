@@ -143,10 +143,10 @@ class Trainer():
                 self._history_update(valid_mets)
                 self.saver.save_model(epoch, model, optimizer, mets=valid_mets)
 
-        # best_checkpoint = torch.load(self.saver.filepath)
-        # logging.info('Loading best checkpoint for epoch: {} | best val_loss: {:.4f}'.format(
-        #     best_checkpoint['epoch'], best_checkpoint['metric']))
-        # model.load_state_dict(best_checkpoint['state_dict'])
+        best_checkpoint = torch.load(self.saver.filepath)
+        logging.info('Loading best checkpoint for epoch: {} | best val_loss: {:.4f}'.format(
+            best_checkpoint['epoch'], best_checkpoint['metric']))
+        model.load_state_dict(best_checkpoint['state_dict'])
 
         test_mets = self.evaluate(model, test_loader)
         self._log_mets(test_mets, epoch, mode='Test')
