@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 
-from experiment import get_config, experiment
+from experiment import get_config, run_experiment
 import utils as utils
 
 
@@ -57,7 +57,7 @@ def grid_search(base_config, scan_params):
     for i in tqdm(range(num)):
         params_to_modify = grid_params[i]
         modified_config = modify_config(base_config, params_to_modify)
-        history, val_predict_out, train_predict_out, val_mets, train_mets = experiment(modified_config)
+        history, val_predict_out, train_predict_out, val_mets, train_mets = run_experiment(modified_config)
         logger.update(modified_config, val_mets, train_mets)
         print('Finish exp: {}/{}'.format(i , num))
 
@@ -72,7 +72,7 @@ def random_search(base_config, scan_params, num=3):
         for k, v in scan_params.items():
             params_to_modify[k] = random.choice(v)
         modified_config = modify_config(base_config, params_to_modify)
-        history, val_predict_out, train_predict_out, val_mets, train_mets = experiment(modified_config)
+        history, val_predict_out, train_predict_out, val_mets, train_mets = run_experiment(modified_config)
         logger.update(modified_config, val_mets, train_mets)
         print('Finish exp: {}/{}'.format(i , num))
 

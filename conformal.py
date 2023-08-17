@@ -37,11 +37,28 @@ class ConformalBase(ABC):
         '''
         pass
 
-    def calibrate_and_get_qhat(self, logits, labels, t=1., alpha=0.1):
+    def calibrate_and_get_qhat(self, logits, labels, t=1., alpha=0.1, **kwargs):
         n = len(labels)
-        scores = self.get_scores(logits, labels, t)
+        scores = self.get_scores(logits, labels, t, **kwargs)
         q_level = np.ceil((n + 1) * (1 - alpha)) / n
         return np.quantile(scores, q_level, method="higher")
+    
+    def calibrate_dls(self, train_dl, val_dl, t=1., alpha=0.1):
+        train_logits = train_dl.dataset.cls_logits.numpy()
+        train_labels = train_dl.dataset.cls_labels.numpy()
+
+        val_logits = val_dl.dataset.cls_logits.numpy()
+        val_labels = val_dl.dataset.cls_labels.numpy()
+        return self.baseline_calibrate(
+            train_logits, train_labels, val_logits, val_labels, t, alpha)
+
+    def baseline_calibrate(
+            self, train_logits, train_labels, val_logits, val_labels, t=1., alpha=0.1):
+        qhat = self.calibrate_and_get_qhat(train_logits, train_labels, t, alpha)
+        sets = self.get_sets(qhat, qhat, val_logits, t, use_pred_scores=True)
+        mets = self.get_conformal_mets(sets, val_labels)
+        mets['qhat'] = qhat
+        return mets
 
     @classmethod
     def set_score_clipping(self, value):
@@ -51,16 +68,26 @@ class ConformalBase(ABC):
     def get_conformal_mets(self, sets, labels):
         set_lens = []
         hits = []
+        hits_per_label = {}
         for s, l in zip(sets, labels):
             set_lens.append(len(s))
+            if l not in hits_per_label:
+                hits_per_label[l] = []
             if l in s:
                 hits.append(1)
+                hits_per_label[l].append(1)
             else:
                 hits.append(0)
+                hits_per_label[l].append(0)
         acc = np.asarray(hits).mean()
         set_lens = np.asarray(set_lens)
+        acc_per_label = {k: np.mean(v) for k, v in hits_per_label.items()}
+        acc_per_label = np.asarray(list(acc_per_label.values()))
         return {'set_size_mean': set_lens.mean(),
                 'set_size_std': set_lens.std(),
+                'acc_per_label_mean': acc_per_label.mean(),
+                'acc_per_label_max': acc_per_label.max(),
+                'acc_per_label_min': acc_per_label.min(),
                 'acc': acc}
 
     @classmethod
@@ -188,26 +215,31 @@ class APSVersionTwoTODO(ConformalBase):
 class APS(ConformalBase):
 
     def get_scores(self, logits, labels, t=1., **kwargs):
-        scores = []
         probs = softmax(logits / t, 1)
+        scores = []
         for p, l in zip(probs, labels):
             true_class_p = p[l]
             score = np.sum(p[p >= true_class_p])
             scores.append(score)
         scores = np.asarray(scores)
+
         if self.score_clip_value:
             inds = np.where(scores >= self.score_clip_value)[0]
             logging.info(f'Clipping {len(inds) / len(scores) * 100.:.2f} of the scores to {self.score_clip_value:.2f}')
             scores[inds] = self.score_clip_value
+
         return scores
 
     def get_sets(self, pred_scores, true_scores, cls_logits, t=1., 
                  use_pred_scores=True, **kwargs):
         
-        cls_logits = softmax(cls_logits / t, 1)
+        probs = softmax(cls_logits / t, 1)
         scores = pred_scores if use_pred_scores else true_scores
+        if isinstance(scores, float) or scores.shape == ():
+            scores = np.full((len(probs)), scores)
+
         sets = []
-        for s, p, in zip(scores, cls_logits):
+        for s, p, in zip(scores, probs):
             sorted_p = np.sort(p)[::-1]
             argsort_p = np.argsort(p)[::-1]
             cumsum_p = np.cumsum(sorted_p)
@@ -218,46 +250,29 @@ class APS(ConformalBase):
                 print('Error')
         return sets
 
-    @staticmethod
-    def _get_set_for_qhat(logits, qhat):
-        sl = np.sort(logits)[::-1]
-        sl_ind = np.argsort(logits)[::-1]
-        i = np.where(np.cumsum(sl) >= qhat)[0][0] + 1
-        return tuple(sl_ind[:i])
-
-    def baseline_calibrate(self, train_dl, val_dl, t=1., alpha=0.1):
-        train_logits = train_dl.dataset.cls_logits.numpy()
-        train_labels = train_dl.dataset.cls_labels.numpy()
-        qhat = self.calibrate_and_get_qhat(train_logits, train_labels, t=t, alpha=alpha)
-
-        val_logits = val_dl.dataset.cls_logits.numpy()
-        val_labels = val_dl.dataset.cls_labels.numpy()
+    def baseline_calibrate(
+            self, train_logits, train_labels, val_logits, val_labels, t=1., alpha=0.1):
         
-        sets = []
-        val_logits = softmax(val_logits / t, 1)
-        for l in val_logits:
-            inds = self._get_set_for_qhat(l, qhat)
-            sets.append(inds)
+        qhat = self.calibrate_and_get_qhat(train_logits, train_labels, t, alpha)
+        sets = self.get_sets(qhat, qhat, val_logits, t, use_pred_scores=True)
         mets = self.get_conformal_mets(sets, val_labels)
         mets['qhat'] = qhat
         return mets
 
 
 class RandomizedAPS(ConformalBase):
-    def __init__(self, randomized=True, no_zero_size_sets=True):
-        self.randomized = randomized
+    def __init__(self, no_zero_size_sets=True):
         self.no_zero_size_sets = no_zero_size_sets
 
-    def _helper_get_sets(self, logits, qhat, t=1.):
+    def _helper_get_sets(self, logits, qhat, t=1., randomized=True):
         probs = softmax(logits / t, 1)
 
         val_pi = probs.argsort(1)[:, ::-1]
         val_srt = np.take_along_axis(probs, val_pi, axis=1).cumsum(axis=1)
-
         if isinstance(qhat, np.ndarray):
             qhat = np.expand_dims(qhat, 1)
 
-        if not self.randomized:
+        if not randomized:
             prediction_sets = np.take_along_axis(val_srt <= qhat, val_pi.argsort(axis=1), axis=1)
         else:
             n_val = val_srt.shape[0]
@@ -265,20 +280,22 @@ class RandomizedAPS(ConformalBase):
             high = val_srt[np.arange(n_val), cumsum_index]
             low = np.zeros_like(high)
             low[cumsum_index > 0] = val_srt[np.arange(n_val), cumsum_index - 1][cumsum_index > 0]
+            if isinstance(qhat, np.ndarray):
+                qhat = np.squeeze(qhat)
             prob = (qhat - low) / (high - low)
             rv = np.random.binomial(1, prob, size=(n_val))
             randomized_threshold = low
             randomized_threshold[rv == 1] = high[rv == 1]
             if self.no_zero_size_sets:
                 randomized_threshold = np.maximum(randomized_threshold, val_srt[:,0])
-                prediction_sets = np.take_along_axis(val_srt <= randomized_threshold[:,None],
-                                                    val_pi.argsort(axis=1), axis=1)
+            prediction_sets = np.take_along_axis(val_srt <= randomized_threshold[:, None],
+                                                 val_pi.argsort(axis=1), axis=1)
         sets = []
         for i in range(len(prediction_sets)):
             sets.append(tuple(np.where(prediction_sets[i, :] != 0)[0]))
         return sets
 
-    def get_scores(self, logits, labels, t=1., **kwargs):
+    def get_scores(self, logits, labels, t=1., randomized=True):
         n = len(labels)
         probs = softmax(logits / t, 1)
         cal_pi = probs.argsort(1)[:, ::-1]
@@ -286,7 +303,7 @@ class RandomizedAPS(ConformalBase):
         cal_softmax_correct_class = np.take_along_axis(cal_srt, cal_pi.argsort(axis=1), axis=1)[
             range(n), labels
         ]
-        if not self.randomized:
+        if not randomized:
             scores = cal_softmax_correct_class
         else:
             cumsum_index = np.where(cal_srt == cal_softmax_correct_class[:,None])[1]
@@ -297,26 +314,47 @@ class RandomizedAPS(ConformalBase):
         return scores
 
     def get_sets(self, pred_scores, true_scores, cls_logits, t=1., 
-                 use_pred_scores=True, **kwargs):
+                 use_pred_scores=True, randomized=True):
         
         scores = pred_scores if use_pred_scores else true_scores
-        return self._helper_get_sets(cls_logits, scores, t)
+        return self._helper_get_sets(cls_logits, scores, t, randomized)
 
-    def baseline_calibrate(self, train_dl, val_dl, t=1., alpha=0.1):
-        train_logits = train_dl.dataset.cls_logits.numpy()
-        train_labels = train_dl.dataset.cls_labels.numpy()
-        qhat = self.calibrate_and_get_qhat(train_logits, train_labels, t=t, alpha=alpha)
-
-        val_logits = val_dl.dataset.cls_logits.numpy()
-        val_labels = val_dl.dataset.cls_labels.numpy()
-        sets = self._helper_get_sets(val_logits, qhat, t)
+    def baseline_calibrate(
+            self, train_logits, train_labels, val_logits, val_labels, t=1., alpha=0.1):
+        qhat = self.calibrate_and_get_qhat(train_logits, train_labels, t, alpha, randomized=True)
+        sets = self.get_sets(qhat, qhat, val_logits, t, use_pred_scores=True, randomized=True)
         mets = self.get_conformal_mets(sets, val_labels)
         mets['qhat'] = qhat
         return mets
 
 
+class Naive(ConformalBase):
+
+    def get_scores(self, logits, labels, t=1., **kwargs):
+        n = len(labels)
+        probs = softmax(logits / t, 1)
+        return 1. - probs[np.arange(n), labels]
+
+    def get_sets(self, pred_scores, true_scores, pred_cls_logits,
+                 t=1., use_pred_scores=True, **kwargs):
+        probs = softmax(pred_cls_logits / t, 1)
+        scores = pred_scores if use_pred_scores else true_scores
+
+        if isinstance(scores, np.ndarray):
+            scores = np.expand_dims(scores, 1)
+            
+        prediction_sets = probs >= (1 - scores)
+
+        sets = []
+        for row in prediction_sets:
+            sets.append(tuple(np.where(row != 0)[0]))
+        return sets
+
+
 def get_conformal_module(conformal_module_name):
-    if conformal_module_name == 'aps':
+    if conformal_module_name == 'naive':
+        return Naive()
+    elif conformal_module_name == 'aps':
         return APS()
     elif conformal_module_name == 'rand_aps':
         return RandomizedAPS()
@@ -328,20 +366,24 @@ if __name__ == '__main__':
     from evaluate import load_pickle, split_data
 
     file_name = '/home/royhirsch/conformal/data/embeds_n_logits/imnet1k_r152/valid.pickle'
-    data = load_pickle(file_name)
-    calib_data, train_data = split_data(data, 40000, seed=42)
-    print(calib_data['labels'].shape, train_data['labels'].shape)
-
-    conf = APS()
+    conformal_module_name = 'aps'
     t = 1.
     alpha = 0.1
 
-    qhat = conf.calibrate_and_get_qhat(calib_data['preds'], calib_data['labels'], t ,alpha)
-    sets = []
-    val_logits = softmax(train_data['preds'] / t, 1)
-    for l in val_logits:
-        inds = conf._get_set_for_qhat(l, qhat)
-        sets.append(inds)
-    mets = conf.get_conformal_mets(sets, train_data['labels'])
+    data = load_pickle(file_name)
+    train_data, val_data = split_data(data, 40000, seed=42)
+    print('Train/Calib shape: {} | Val shape: {}'.format(train_data['labels'].shape,
+                                                         val_data['labels'].shape))
+
+    conformal = get_conformal_module(conformal_module_name)
+    mets = conformal.baseline_calibrate(train_data['preds'], train_data['labels'],
+                                        val_data['preds'], val_data['labels'])
+    print(mets)
+
+    qhat = conformal.calibrate_and_get_qhat(train_data['preds'], train_data['labels'], t, alpha)
+    sets = conformal.get_sets(np.full(val_data['labels'].shape, qhat, ), 
+                              np.full(val_data['labels'].shape, qhat, ), val_data['preds'], t)
+    mets = conformal.get_conformal_mets(sets, val_data['labels'])
     mets['qhat'] = qhat
     print(mets)
+

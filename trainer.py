@@ -30,6 +30,7 @@ def get_scheduler(optimizer, config):
         raise ValueError('Invalid scheduler {}'.format(config.scheduler_name))
     return scheduler
 
+
 class Trainer():
     def __init__(self, criteria, metric_logger, config):
         self.criteria = criteria 
@@ -52,10 +53,12 @@ class Trainer():
         return batch
 
     def get_label(self, batch):
-        return batch['scores']
-    
-    def calc_loss(self, preds, batch):
-        return self.criteria(preds.squeeze(), self.get_label(batch))
+        labels = batch['scores']
+        labels = torch.log(labels / (1. - labels))
+        return labels
+
+    def calc_loss(self, preds, labels):
+        return self.criteria(preds.squeeze(), labels)
     
     def forward(self, model, batch):
         out = model(batch['embeds'])
@@ -72,13 +75,14 @@ class Trainer():
             optimizer.zero_grad()
 
             batch = self.to_device(batch)
+            labels = self.get_label(batch)
             predictions = self.forward(model, batch)
-            loss = self.calc_loss(predictions, batch)
+            loss = self.calc_loss(predictions, labels)
 
             loss.backward()
             optimizer.step()
 
-            met.update(predictions, self.get_label(batch), batch['logits'], batch['labels'])
+            met.update(predictions, labels)
             met.update_loss(loss.item())
         return met.calc()
 
@@ -88,10 +92,11 @@ class Trainer():
         with torch.no_grad():
             for batch in data_loader:
                 batch = self.to_device(batch)
+                labels = self.get_label(batch)
                 predictions = self.forward(model, batch)
-                loss = self.calc_loss(predictions, batch)
+                loss = self.calc_loss(predictions, labels)
 
-                met.update(predictions, self.get_label(batch), batch['logits'], batch['labels'])
+                met.update(predictions, labels)
                 met.update_loss(loss.item())
         return met.calc()
     
@@ -99,21 +104,27 @@ class Trainer():
         model.eval()
         pred_scores = []
         true_scores = []
-        cls_logits = []
+        cls_probs = []
         cls_labels = []
         with torch.no_grad():
             for batch in data_loader:
                 batch = self.to_device(batch)
                 predictions = self.forward(model, batch)
 
-                pred_scores.append(predictions.squeeze().detach().cpu().numpy())
-                true_scores.append(batch['scores'].squeeze().detach().cpu().numpy())
-                cls_logits.append(batch['logits'].detach().cpu().numpy())
+                predictions = predictions.squeeze().detach().cpu().numpy()
+                predictions = 1 / (np.exp(-predictions) + 1) # TODO
+                pred_scores.append(predictions)
+
+                scores = batch['scores'].squeeze().detach().cpu().numpy()
+                # scores = 1 / (np.exp(-scores) + 1) # TODO
+                true_scores.append(scores)
+
+                cls_probs.append(batch['probs'].detach().cpu().numpy())
                 cls_labels.append(batch['labels'].detach().cpu().numpy())
 
         return {'pred_scores': np.concatenate(pred_scores),
                 'true_scores': np.concatenate(true_scores),
-                'cls_logits': np.concatenate(cls_logits),
+                'cls_probs': np.concatenate(cls_probs),
                 'cls_labels': np.concatenate(cls_labels)}
 
     def fit(self, model, train_loader, test_loader, optimizer, scheduler, valid_loader=None):
@@ -143,10 +154,10 @@ class Trainer():
                 self._history_update(valid_mets)
                 self.saver.save_model(epoch, model, optimizer, mets=valid_mets)
 
-        best_checkpoint = torch.load(self.saver.filepath)
-        logging.info('Loading best checkpoint for epoch: {} | best val_loss: {:.4f}'.format(
-            best_checkpoint['epoch'], best_checkpoint['metric']))
-        model.load_state_dict(best_checkpoint['state_dict'])
+        # best_checkpoint = torch.load(self.saver.filepath)
+        # logging.info('Loading best checkpoint for epoch: {} | best val_loss: {:.4f}'.format(
+        #     best_checkpoint['epoch'], best_checkpoint['metric']))
+        # model.load_state_dict(best_checkpoint['state_dict'])
 
         test_mets = self.evaluate(model, test_loader)
         self._log_mets(test_mets, epoch, mode='Test')

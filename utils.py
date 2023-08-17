@@ -13,13 +13,16 @@ def log(prefix, mets):
         s = ' | '.join([f'{k}: {v:.3f}' for k, v in mets.items()])
         logging.info(prefix + ': ' + s)
 
+
 def seed_everything(seed):
     torch.manual_seed(seed)
+    torch.random.manual_seed(seed)
     torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     random.seed(seed)
-
+                    
 
 class LogFormatter():
     def __init__(self):
@@ -133,6 +136,13 @@ class MetricLogger():
         raise NotImplementedError
 
 
+def calc_r2(y, y_pred):
+    y_mean = np.mean(y)
+    ss_tot = np.sum((y - y_mean)**2)
+    ss_res = np.sum((y - y_pred)**2)
+    return 1 - (ss_res / ss_tot)
+
+
 class RegressionMetricLogger(MetricLogger):
     def __init__(self, t=1.):
         super().__init__()
@@ -143,37 +153,21 @@ class RegressionMetricLogger(MetricLogger):
         self._l2s = []
         self._set_sizes = []
         self._hits = []
+        self._all_preds = []
+        self._all_labels = []
 
-    def update(self, pred_scores, true_scores, preds, labels):
+    def update(self, pred_scores, true_scores):
         pred_scores = pred_scores.squeeze().detach().cpu()
         true_scores = true_scores.detach().cpu()
-        preds = preds.detach().cpu()
-        labels = labels.detach().cpu()
 
+        self._all_labels += true_scores.numpy().tolist()
+        self._all_preds += pred_scores.numpy().tolist()
         self._l2s += (torch.abs(pred_scores - true_scores)**2).numpy().tolist()
-
-        # pred_scores = pred_scores.numpy()
-        # true_scores = true_scores.numpy()
-        # preds = preds.numpy()
-        # labels = labels.numpy()
-
-        # logits = softmax(preds / self.t, 1)
-        # for s, p, l in zip(true_scores, logits, labels):
-        #     sorted_p = np.sort(p)[::-1]
-        #     argsort_p = np.argsort(p)[::-1]
-        #     cumsum_p = np.cumsum(sorted_p)
-        #     inds = np.where(cumsum_p >= s)[0]
-        #     if len(inds):
-        #         self._set_sizes.append(inds[0] + 1)
-        #         if l in argsort_p[:int(inds[0] + 1)]:
-        #             self._hits.append(1)
-        #         else:
-        #             self._hits.append(0)
-        #     else:
-        #         print('E')
 
     def calc(self):
         return {'loss': np.mean(self._losses),
+                'r^2': calc_r2(np.asarray(self._all_labels),
+                               np.asarray(self._all_preds)),
                 'l2':  np.mean(self._l2s)}
                 # 'size':  np.mean(np.asarray(self._set_sizes)),
                 # 'acc':  np.mean(np.asarray(self._hits))}

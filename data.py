@@ -1,22 +1,40 @@
 import logging
 import numpy as np
 import torch
+import random
+from scipy.special import softmax
 
 from evaluate import load_pickle, split_data
 from conf_tools import get_logits_dataloader, platt_logits
 
 
+def interpolate(a, b, tau):
+    return (a * tau) + (b * (1. - tau))
+
+
 class ScoresDataset(torch.utils.data.Dataset):
-    def __init__(self, embeds, cls_logits, cls_labels, scores):
+    def __init__(self, embeds, cls_probs, cls_labels, scores, rand=0):
         self.embeds = embeds
-        self.cls_logits = cls_logits
+        self.cls_probs = cls_probs
         self.cls_labels = cls_labels
         self.scores = scores
+        self.rand = rand
         
 
     def __getitem__(self, i):
+        # if self.rand:
+        #     if random.random() < self.rand:
+        #         pass
+        #     else:
+        #         tau = random.random()
+        #         j = random.choice(range(self.__len__()))
+        #         return {'embeds': interpolate(self.embeds[i], self.embeds[j], tau),
+        #                 'probs': interpolate(self.cls_probs[i], self.cls_probs[j], tau),
+        #                 'labels': interpolate(self.cls_labels[i], self.cls_labels[j], tau),
+        #                 'scores': interpolate(self.scores[i], self.scores[j], tau)}
+
         return {'embeds': self.embeds[i],
-                'logits': self.cls_logits[i],
+                'probs': self.cls_probs[i],
                 'labels': self.cls_labels[i],
                 'scores': self.scores[i]}
 
@@ -39,6 +57,8 @@ def get_dataloader(embeds, cls_logits, cls_labels, scores,
 def get_dataloaders(config, conformal_module):
     data = load_pickle(config.file_name)
     valid_data, train_data = split_data(data, config.num_train, seed=config.seed)
+    logging.info('Train/Calib shape: {} | Val shape: {}'.format(
+        train_data['labels'].shape, valid_data['labels'].shape))
 
     if config.plat_scaling:
         train_dataloader = get_logits_dataloader(train_data['preds'],
@@ -48,20 +68,26 @@ def get_dataloaders(config, conformal_module):
     else: 
         t = 1.
 
-    train_scores = conformal_module.get_scores(train_data['preds'],
-                                               train_data['labels'],
-                                               t)
-    train_dataloader = get_dataloader(train_data['embeds'], train_data['preds'], 
-                                      train_data['labels'], np.asarray(train_scores),
-                                      batch_size=config.batch_size, shuffle=True, 
+    train_data['probs'] = softmax(train_data['preds'] / t, 1)
+    train_scores = conformal_module.get_scores(train_data['probs'],
+                                               train_data['labels'])
+    train_dataloader = get_dataloader(train_data['embeds'],
+                                      train_data['probs'], 
+                                      train_data['labels'],
+                                      np.asarray(train_scores),
+                                      batch_size=config.batch_size,
+                                      shuffle=True, 
                                       pin_memory=True)
 
-    valid_scores = conformal_module.get_scores(valid_data['preds'], 
-                                               valid_data['labels'],
-                                               t)
-    valid_dataloader = get_dataloader(valid_data['embeds'], valid_data['preds'],
-                                      valid_data['labels'], np.asarray(valid_scores), 
-                                      batch_size=config.batch_size, shuffle=False,
+    valid_data['probs'] = softmax(valid_data['preds'] / t, 1)
+    valid_scores = conformal_module.get_scores(valid_data['probs'], 
+                                               valid_data['labels'])
+    valid_dataloader = get_dataloader(valid_data['embeds'],
+                                      valid_data['probs'],
+                                      valid_data['labels'], 
+                                      np.asarray(valid_scores), 
+                                      batch_size=config.batch_size,
+                                      shuffle=False,
                                       pin_memory=True)
 
     return train_dataloader, valid_dataloader, t
