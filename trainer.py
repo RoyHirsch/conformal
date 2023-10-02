@@ -31,11 +31,38 @@ def get_scheduler(optimizer, config):
     return scheduler
 
 
+class LabelsTransform():
+    def label_transform(self, labels):
+        return torch.log(labels / (1. -  + 1e-8))
+
+    def preds_transform(self, preds):
+        return 1 / (np.exp(- preds) + 1)
+
+
+class LambdaLabelsTransform():
+    def label_transform(self, labels):
+        return labels
+
+    def preds_transform(self, preds):
+        return preds
+
+
+def get_label_transform(transform_name):
+    logging.info(f'Label transform: {transform_name}')
+    if transform_name == 'none':
+        return LambdaLabelsTransform()
+    elif transform_name == 'log':
+        return LabelsTransform()
+    else:
+        raise ValueError
+
+
 class Trainer():
     def __init__(self, criteria, metric_logger, config):
         self.criteria = criteria 
         self.metric_logger = metric_logger
         self.config = config
+        self.transform = get_label_transform(config.label_transform_name)
         self.history = {}
 
     def _history_update(self, m):
@@ -54,8 +81,7 @@ class Trainer():
 
     def get_label(self, batch):
         labels = batch['scores']
-        labels = torch.log(labels / (1. - labels))
-        return labels
+        return self.transform.label_transform(labels)
 
     def calc_loss(self, preds, labels):
         return self.criteria(preds.squeeze(), labels)
@@ -112,11 +138,10 @@ class Trainer():
                 predictions = self.forward(model, batch)
 
                 predictions = predictions.squeeze().detach().cpu().numpy()
-                predictions = 1 / (np.exp(-predictions) + 1) # TODO
+                predictions = self.transform.preds_transform(predictions)
                 pred_scores.append(predictions)
 
                 scores = batch['scores'].squeeze().detach().cpu().numpy()
-                # scores = 1 / (np.exp(-scores) + 1) # TODO
                 true_scores.append(scores)
 
                 cls_probs.append(batch['probs'].detach().cpu().numpy())

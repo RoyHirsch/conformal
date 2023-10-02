@@ -54,40 +54,33 @@ def get_dataloader(embeds, cls_logits, cls_labels, scores,
         dataset, batch_size=batch_size, shuffle=shuffle, pin_memory=pin_memory)
 
 
-def get_dataloaders(config, conformal_module):
+def read_and_split(config):
     data = load_pickle(config.file_name)
-    valid_data, train_data = split_data(data, config.num_train, seed=config.seed)
-    logging.info('Train/Calib shape: {} | Val shape: {}'.format(
-        train_data['labels'].shape, valid_data['labels'].shape))
+    return split_data(data, config.num_train, config.num_test, config.num_valid, seed=config.seed)
+
+
+def get_dataloaders(config, conformal_module, get_data_func=read_and_split):
+    data = get_data_func(config)
+    for k, v in data.items():
+        logging.info('{} shape: {}'.format(k, v['labels'].shape))
 
     if config.plat_scaling:
-        train_dataloader = get_logits_dataloader(train_data['preds'],
-                                                 train_data['labels'])
+        train_dataloader = get_logits_dataloader(data['train']['preds'],
+                                                 data['train']['labels'])
         t = platt_logits(train_dataloader)
         logging.info('Temp is {:.4f}'.format(t))
     else: 
         t = 1.
 
-    train_data['probs'] = softmax(train_data['preds'] / t, 1)
-    train_scores = conformal_module.get_scores(train_data['probs'],
-                                               train_data['labels'])
-    train_dataloader = get_dataloader(train_data['embeds'],
-                                      train_data['probs'], 
-                                      train_data['labels'],
-                                      np.asarray(train_scores),
-                                      batch_size=config.batch_size,
-                                      shuffle=True, 
-                                      pin_memory=True)
+    dls = {}
+    for k, v in data.items():
+        v['probs'] = softmax(v['preds'] / t, 1)
+        scores = conformal_module.get_scores(v['probs'], v['labels'])
+        dl = get_dataloader(v['embeds'], v['probs'], v['labels'],
+                            np.asarray(scores),
+                            batch_size=config.batch_size,
+                            shuffle=True if k == 'train' else False,
+                            pin_memory=True)
+        dls[k] = dl
 
-    valid_data['probs'] = softmax(valid_data['preds'] / t, 1)
-    valid_scores = conformal_module.get_scores(valid_data['probs'], 
-                                               valid_data['labels'])
-    valid_dataloader = get_dataloader(valid_data['embeds'],
-                                      valid_data['probs'],
-                                      valid_data['labels'], 
-                                      np.asarray(valid_scores), 
-                                      batch_size=config.batch_size,
-                                      shuffle=False,
-                                      pin_memory=True)
-
-    return train_dataloader, valid_dataloader, t
+    return dls, t

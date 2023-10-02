@@ -13,18 +13,24 @@ import utils as utils
 
 class ExperimentsLogger():
     def __init__(self, save_dir, file_name='scan_res.csv',
-                 sort_field='val_sizes', periodic_save=5) -> None:
+                 sort_field='cp_net_post_sizes', periodic_save=5) -> None:
         self.file_name = os.path.join(save_dir, file_name)
         self.sort_field = sort_field
         self.periodic_save = periodic_save
         self.df = pd.DataFrame(
-            columns=['num', 'config', 'train_acc', 'train_sizes', 'val_acc', 'val_sizes'])
+            columns=['num', 'config', 'train_sizes', 'train_acc', 'cp_net_sizes', 'cp_net_acc',
+                     'cp_net_post_sizes', 'cp_net_post_acc'])
         self.i = 1
 
-    def update(self, config, val_mets, train_mets):
-        self.df.loc[len(self.df)] = [self.i, str(vars(config)), 
-                                     train_mets['acc'], train_mets['set_size_mean'],
-                                     val_mets['acc'], val_mets['set_size_mean']]
+    def update(self, config, outputs):
+        self.df.loc[len(self.df)] = [self.i,
+                                     str(vars(config)), 
+                                     outputs['train_mets']['size_mean'],
+                                     outputs['train_mets']['acc'],
+                                     outputs['test_mets']['size_mean'],
+                                     outputs['test_mets']['acc'],
+                                     outputs['calibrated_test_mets']['size_mean'],
+                                     outputs['calibrated_test_mets']['acc']]
         self.i += 1
         if self.i % self.periodic_save == 0:
             self.save()
@@ -35,11 +41,11 @@ class ExperimentsLogger():
         print('Best exp:')
         best_exp = self.df.iloc[0]
         print(best_exp['config'])
-        print('Val acc: {:.4f} val size: {:.2f}'.format(best_exp['val_acc'],
-                                                        best_exp['val_sizes']))
+        print('Post-test acc: {:.4f} and size: {:.2f}'.format(
+            best_exp['cp_net_post_acc'],
+            best_exp['cp_net_post_sizes']))
 
     
-        
 def modify_config(base_config, params_to_modify):
     config = copy.deepcopy(base_config)
     for k, v in params_to_modify.items():
@@ -57,8 +63,8 @@ def grid_search(base_config, scan_params):
     for i in tqdm(range(num)):
         params_to_modify = grid_params[i]
         modified_config = modify_config(base_config, params_to_modify)
-        history, val_predict_out, train_predict_out, val_mets, train_mets = run_experiment(modified_config)
-        logger.update(modified_config, val_mets, train_mets)
+        outputs = run_experiment(modified_config)
+        logger.update(modified_config, outputs)
         print('Finish exp: {}/{}'.format(i , num))
 
     logger.save()
@@ -72,28 +78,25 @@ def random_search(base_config, scan_params, num=3):
         for k, v in scan_params.items():
             params_to_modify[k] = random.choice(v)
         modified_config = modify_config(base_config, params_to_modify)
-        history, val_predict_out, train_predict_out, val_mets, train_mets = run_experiment(modified_config)
-        logger.update(modified_config, val_mets, train_mets)
+        outputs = run_experiment(modified_config)
+        logger.update(modified_config, outputs)
         print('Finish exp: {}/{}'.format(i , num))
 
     logger.save()
 
 
 if __name__ == '__main__':
-    scan_params = {'lr': [1e-3, 5e-4, 3e-4, 1e-4],
-                   'wd': [1e-3, 1e-4, 1e-5],
-                   'hidden_dim': [None, 512, 256, 128],
+    scan_params = {'lr': [1e-3, 5e-4, 1e-4],
+                   'wd': [1e-6],
+                   'hidden_dim': [32, 128],
                    'drop_rate': [0, 0.3, 0.5],
-                   'scheduler_name': ['none', 'plateau'],
-                   'optimizer_name': ['adamw', 'sgd'],
-                   'num_epochs': [60],
-                   'norm': [False, True]}
+                   'num_epochs': [70, 100, 120]}
     
     # scan_params ={'lr': [1e-3, 5e-4],
     #                'num_epochs': [2],
     #                'name': ['base_scan_2207']}
     
-    name = 'base_scan_v2_2207'
+    name = 'tissuemnist_rand_scan_0210'
     gpu_num = 0
 
     config = get_config()
@@ -104,5 +107,5 @@ if __name__ == '__main__':
     if not os.path.exists(config.exp_dir):
         os.makedirs(config.exp_dir)
 
-    random_search(config, scan_params, num=200)
+    random_search(config, scan_params, num=60)
     # grid_search(config, scan_params)
