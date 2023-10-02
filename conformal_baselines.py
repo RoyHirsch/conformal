@@ -100,6 +100,7 @@ def aps_randomized(train_dl, val_dl, n_calib, alpha=0.1, randomized=True, no_zer
     n = len(cal_labels)
 
     # Get scores. calib_X.shape[0] == calib_Y.shape[0] == n
+    cal_probs = cal_probs.astype(np.float64)
     cal_pi = cal_probs.argsort(1)[:, ::-1]
     cal_srt = np.take_along_axis(cal_probs, cal_pi, axis=1).cumsum(axis=1)
     cal_softmax_correct_class = np.take_along_axis(cal_srt, cal_pi.argsort(axis=1), axis=1)[
@@ -142,7 +143,7 @@ def aps_randomized(train_dl, val_dl, n_calib, alpha=0.1, randomized=True, no_zer
     return (sets, val_labels)
 
 
-def raps(train_dl, val_dl, n_calib, alpha=0.1, lam_reg=0.01, k_reg=5, disallow_zero_sets=False, rand=True):
+def raps(train_dl, val_dl, n_calib, alpha=0.1, lam_reg=0.01, k_reg=5, disallow_zero_sets=False, rand=False):
     cal_probs, cal_labels, val_probs, val_labels = get_calib_and_val_datasets(train_dl, val_dl, n_calib)
     n = len(cal_labels)
 
@@ -196,7 +197,8 @@ def calc_conformal_mets(sets, labels):
             'acc': acc}
 
 
-def calc_baseline_mets(train_dl, val_dl, n_calib=0, alpha=0.1, model_names=['naive', 'aps', 'raps']):
+def calc_baseline_mets(train_dl, val_dl, n_calib=0, alpha=0.1,
+                       model_names=['naive', 'aps', 'aps_randomized', 'raps', 'raps_randomized']):
     mets = {}
 
     if 'naive' in model_names:
@@ -207,13 +209,18 @@ def calc_baseline_mets(train_dl, val_dl, n_calib=0, alpha=0.1, model_names=['nai
         sets, labels = aps(train_dl, val_dl, n_calib, alpha)
         mets['aps'] = calc_conformal_mets(sets, labels)
 
-    if 'randomized_aps' in model_names:
+    if 'aps_randomized' in model_names:
         sets, labels = aps_randomized(train_dl, val_dl, n_calib, alpha)
         mets['aps_randomized'] = calc_conformal_mets(sets, labels)
 
     if 'raps' in model_names:
-        sets, labels = raps(train_dl, val_dl, n_calib, alpha)
+        sets, labels = raps(train_dl, val_dl, n_calib, alpha, rand=False)
         mets['raps'] = calc_conformal_mets(sets, labels)
+    
+    if 'raps_randomized' in model_names:
+        sets, labels = raps(train_dl, val_dl, n_calib, alpha, rand=True)
+        mets['raps_randomized'] = calc_conformal_mets(sets, labels)
+
     return mets
 
 
@@ -225,7 +232,8 @@ if __name__ == '__main__':
     conformal_module = get_conformal_module(config.conformal_module_name)
 
     dls, t = get_dataloaders(config, conformal_module)
-    mets = calc_baseline_mets(dls['train'], dls['test'], n_calib=10000, alpha=0.1)
+    mets = calc_baseline_mets(dls['train'], dls['test'], n_calib=10000, alpha=0.1,
+                              model_names=['naive', 'aps', 'aps_randomized', 'raps', 'raps_randomized'])
 
     for k, v in mets.items():
         print(k)

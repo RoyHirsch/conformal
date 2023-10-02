@@ -33,11 +33,11 @@ def get_config():
     cfg = config_dict.ConfigDict()
 
     # experiment
-    cfg.name = '0210_exp1'
+    cfg.name = '0210_exp2'
     cfg.out_dir = '/home/royhirsch/conformal/exps/tissuemnist'
     cfg.exp_dir = os.path.join(cfg.out_dir, cfg.name)
 
-    cfg.dump_log = False
+    cfg.dump_log = True
     cfg.comments = ''
     cfg.gpu_num = 1
     cfg.device = torch.device('cuda:{}'.format(cfg.gpu_num) if torch.cuda.is_available() else 'cpu')
@@ -65,7 +65,7 @@ def get_config():
     cfg.input_dim = 2048
     cfg.norm = False
     cfg.drop_rate = 0.0
-    cfg.hidden_dim = 128
+    cfg.hidden_dim = 32
 
     # optim
     cfg.optimizer_name = 'adamw'
