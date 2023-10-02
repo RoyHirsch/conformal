@@ -1,16 +1,15 @@
 import os
 from ml_collections import config_dict
 import logging
-import numpy as np
 import pandas as pd
 import pickle
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from conformal import get_conformal_module, get_percentile, clip_scores, calibrate_residual
 from conformal_baselines import calc_baseline_mets
 from data import get_dataloaders
+from model import NN
 from trainer import Trainer, get_optimizer, get_scheduler
 import utils as utils
 
@@ -40,7 +39,7 @@ def get_config():
 
     cfg.dump_log = False
     cfg.comments = ''
-    cfg.gpu_num = 0
+    cfg.gpu_num = 1
     cfg.device = torch.device('cuda:{}'.format(cfg.gpu_num) if torch.cuda.is_available() else 'cpu')
     cfg.seed = 42
 
@@ -82,34 +81,6 @@ def get_config():
     cfg.monitor_met_name = 'val_loss'
     
     return cfg
-
-
-class NN(nn.Module):
-    def __init__(self, input_dim=2048, out_dim=1, hidden_dim=None, drop_rate=0, norm=False, criteria_name='mse'):
-        super().__init__()
-        self.norm = norm
-        self.hidden_dim = hidden_dim
-        self.criteria_name = criteria_name
-        if norm:
-            self.norm = nn.LayerNorm(input_dim)
-        if hidden_dim == None:
-            self.layers = nn.Linear(input_dim, out_dim)
-        else:
-            layers = [nn.Linear(input_dim, hidden_dim)]
-            if drop_rate:
-                layers.append(nn.Dropout(p=drop_rate))
-            layers.append(nn.ReLU())
-            layers.append(nn.Linear(hidden_dim, out_dim))
-            self.layers = nn.Sequential(*layers)
-
-        if criteria_name == 'bce':
-            self.post = nn.Sigmoid()
-
-    def forward(self, x):
-        if self.criteria_name == 'bce':
-            return self.post(self.layers(x))
-        else:
-            return self.layers(x)
 
 
 def run_experiment(config):
