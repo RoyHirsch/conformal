@@ -3,10 +3,16 @@ sys.path.insert(1, os.path.join(sys.path[0], './conformal_classification/'))
 
 import torch
 import torch.nn as nn
+import torch.utils.data as data
+import torchvision.transforms as transforms
 import torchvision
 import numpy as np
 import pickle
 from tqdm import tqdm
+
+import medmnist
+from medmnist import INFO, Evaluator
+import PIL
 
 
 def get_embeds_logits(model, loader, device):
@@ -69,6 +75,24 @@ class EmbedResnet(nn.Module):
         return self.model.fc(x)
 
 
+def calc(model, loader, device, fold='Test'):
+    all_embeds, all_preds, all_labels = get_embeds_logits(model, loader, device)
+    all_labels = np.squeeze(all_labels)
+    print(f'Embeds shape : {all_embeds.shape}')
+    print(f'Preds shape : {all_preds.shape}')
+    print(f'Labels shape : {all_labels.shape}')
+
+    counts = np.bincount(all_labels)
+
+    print(fold)
+    print('Labels count: mean: {:.3f} max: {:.3f} min: {:.3f}'.format(counts.mean(),
+                                                                      counts.max(),
+                                                                      counts.min()))
+
+    print(f'Acc: {(all_preds.argmax(1) == all_labels).mean()}')
+    return all_embeds, all_preds, all_labels
+
+
 def get_model(model_name):
     if model_name == 'resnet18':
         weights = torchvision.models.ResNet18_Weights.DEFAULT
@@ -94,7 +118,58 @@ def get_model(model_name):
     return model, preprocess
 
 
-if __name__ == "__main__":
+def main_medmnist():
+    dataset_name = 'organamnist'
+    device = torch.device('cuda:1')
+    BATCH_SIZE = 128
+    out_dir = '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist'
+    out_file_name = 'organmnist_test.pickle'
+    include_val = True
+    
+    download = True
+    info = INFO[dataset_name]
+    task = info['task']
+    n_channels = info['n_channels']
+    n_classes = len(info['label'])
+    
+    DataClass = getattr(medmnist, info['python_class'])
+
+    data_transform = transforms.Compose(
+        [transforms.Resize((224, 224), interpolation=PIL.Image.NEAREST), 
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[.5], std=[.5])])
+
+    val_dataset = DataClass(split='val', transform=data_transform, download=download, as_rgb=True)
+    test_dataset = DataClass(split='test', transform=data_transform, download=download, as_rgb=True)
+
+    val_loader = data.DataLoader(dataset=val_dataset, batch_size=2*BATCH_SIZE, shuffle=False)
+    test_loader = data.DataLoader(dataset=test_dataset, batch_size=2*BATCH_SIZE, shuffle=False)
+
+    num_classes = len(np.unique(val_dataset.labels))
+    model = torchvision.models.resnet50(pretrained=False, num_classes=num_classes)
+
+    model.load_state_dict(torch.load(f'/home/royhirsch/conformal/notebooks/medmnist/{dataset_name}/resnet50_224_1.pth')['net'])
+    model = model.to(device)
+    model = model.eval()
+
+    all_embeds, all_preds, all_labels = calc(model, test_loader, device, fold='Test')
+    if include_val:
+        val_embeds, val_preds, val_labels = calc(model, val_loader, device, fold='Val')
+        all_embeds = np.concatenate([all_embeds, val_embeds])
+        all_preds = np.concatenate([all_preds, val_preds])
+        all_labels = np.concatenate([all_labels, val_labels])
+    
+    print('Final:')
+    print(f'Embeds shape : {all_embeds.shape}')
+    print(f'Preds shape : {all_preds.shape}')
+    print(f'Labels shape : {all_labels.shape}')
+
+    save_pickle({'embeds': all_embeds,
+                 'preds': all_preds,
+                 'labels': all_labels}, os.path.join(out_dir, out_file_name))
+
+
+def main_imnet1k():
     ###############
     # PARAMS
     ###############
@@ -160,3 +235,7 @@ if __name__ == "__main__":
     save_pickle({'embeds': all_embeds,
                  'preds': all_preds,
                  'labels': all_labels}, os.path.join(out_dir, out_file_name))
+
+if __name__ == "__main__":
+    # main_imnet1k()
+    main_medmnist()

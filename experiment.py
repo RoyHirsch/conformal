@@ -11,6 +11,7 @@ from conformal_baselines import calc_baseline_mets
 from data import get_dataloaders
 from model import NN
 from trainer import Trainer, get_optimizer, get_scheduler
+from config import get_config_by_name
 import utils as utils
 
 
@@ -28,61 +29,6 @@ def predict_and_report_mets(conformal_module, trainer, model, dl, fold_name=''):
     return predict_out, mets
 
 
-def get_config():
-    
-    cfg = config_dict.ConfigDict()
-
-    # experiment
-    cfg.name = '0210_exp2'
-    cfg.out_dir = '/home/royhirsch/conformal/exps/tissuemnist'
-    cfg.exp_dir = os.path.join(cfg.out_dir, cfg.name)
-
-    cfg.dump_log = True
-    cfg.comments = ''
-    cfg.gpu_num = 1
-    cfg.device = torch.device('cuda:{}'.format(cfg.gpu_num) if torch.cuda.is_available() else 'cpu')
-    cfg.seed = 42
-
-    # data
-    # cfg.file_name = '/home/royhirsch/conformal/data/embeds_n_logits/imnet1k_r152/valid.pickle'
-    cfg.file_name = '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist/tissuemnist_test.pickle'
-    # cfg.file_name = '/home/royhirsch/conformal/data/embeds_n_logits/aug/imnet1k_r152/100k_train.pickle'
-    cfg.label_transform_name = 'none'
-    cfg.num_train = 40000
-    cfg.num_valid = 3500
-    cfg.num_test = 3500
-    cfg.batch_size = 128
-    cfg.num_workers = 4
-    cfg.pin_memory = True
-    
-    # conformal
-    cfg.alpha = 0.1
-    cfg.plat_scaling = True
-    cfg.conformal_module_name = 'aps'
-    cfg.use_score_clipping = True
-
-    # model
-    cfg.input_dim = 2048
-    cfg.norm = False
-    cfg.drop_rate = 0.0
-    cfg.hidden_dim = 32
-
-    # optim
-    cfg.optimizer_name = 'adamw'
-    cfg.scheduler_name = 'none'
-    cfg.criteria_name = 'mse'
-    cfg.lr = 5e-4
-    cfg.wd = 1e-6
-
-    # train
-    cfg.num_epochs = 70
-    cfg.val_interval = 5
-    cfg.save_interval = 200
-    cfg.monitor_met_name = 'val_loss'
-    
-    return cfg
-
-
 def run_experiment(config):
     logging.info('Config:')
     for k, v in config.items():
@@ -94,8 +40,8 @@ def run_experiment(config):
     train_dl = dls['train']
     valid_dl = dls['valid']
     test_dl = dls['test']
-    baseline_mets = calc_baseline_mets(train_dl, valid_dl, alpha=config.alpha)
-    # train_dl.dataset.rand = 0.5
+    # baseline_mets = calc_baseline_mets(train_dl, valid_dl, alpha=config.alpha)
+    baseline_mets = {}
 
     # if use clipping, need to re-calc the scores for the datasets
     if config.use_score_clipping:
@@ -115,10 +61,6 @@ def run_experiment(config):
         mets = conformal_module.get_conformal_mets(
             sets, test_dl.dataset.cls_labels.numpy())
         utils.log('Baseline mets (after clipping)', mets)
-    else:
-        baseline_mets = conformal_module.calibrate_dls(
-            valid_dl, test_dl, alpha=config.alpha)
-        utils.log('Baseline mets', baseline_mets)
 
 
     model = NN(input_dim=config.input_dim,
@@ -162,8 +104,8 @@ def run_experiment(config):
 
     # calibrate the predicted scores
     calibrated_test_pred_scores, qhat = calibrate_residual(
-        val_predict_out['true_scores'],
-        val_predict_out['pred_scores'],
+        train_predict_out['true_scores'], # todo
+        train_predict_out['pred_scores'],
         test_predict_out['true_scores'],
         test_predict_out['pred_scores'], 
         config.alpha)
@@ -190,11 +132,12 @@ def run_experiment(config):
             'train_mets': train_mets,
             'val_mets': val_mets,
             'test_mets': test_mets,
-            'calibrated_test_mets': calibrated_test_mets}
+            'calibrated_test_mets': calibrated_test_mets,
+            'baseline_mets': baseline_mets}
 
 
 if __name__ == '__main__':
-    config = get_config()
+    config = get_config_by_name('organamnist')
     utils.seed_everything(config.seed)
     utils.create_logger(config.exp_dir, config.dump_log)
     outputs = run_experiment(config)

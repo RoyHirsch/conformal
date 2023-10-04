@@ -1,4 +1,5 @@
-import os, sys, inspect
+import sys
+import os
 sys.path.insert(1, os.path.join(sys.path[0], './conformal_classification/'))
 
 import torch
@@ -11,7 +12,7 @@ import pickle
 from tqdm import tqdm
 import time
 from scipy.special import softmax
-
+import logging
 
 class RepsDataset(torch.utils.data.Dataset):
     def __init__(self, logits, labels):
@@ -31,37 +32,58 @@ def load_pickle(file_path):
     return data
 
 
-def split_data(data, n_calib, n_valid=None, seed=None):
+def split_data(data, n_train, n_test=0, n_valid=None, seed=None):
     labels = data['labels']
     n = len(labels)
     idx = np.arange(n)
     
+    logging.info(f'Split {n} samples to train/val/test : {n_train}/{n_valid}/{n_test}')
+    assert n_train + n_test + n_valid <= n
+
     if seed:
-        np.random.seed = seed
+        np.random.seed(seed)
     np.random.shuffle(idx)
 
-    calib_idx = idx[:n_calib]
-    if n_valid:
-        valid_idx = idx[n_calib:n_calib+n_valid]
+    train_idx = idx[:n_train]
+    if n_test > 0:
+        test_idx = idx[n_train:n_train + n_test]
     else:
-        valid_idx = idx[n_calib:]
+        test_idx = idx[n_train:]
+
+    if n_valid > 0:
+        valid_idx = idx[n_train + n_test:n_train + n_test + n_valid]
+    else:
+        valid_idx = idx[n_train + n_test:]
+        valid_data = {}
     
     
     if 'embeds' in data:
-        calib_data = {'embeds': data['embeds'][calib_idx, :],
-                    'preds': data['preds'][calib_idx, :],
-                    'labels': data['labels'][calib_idx]}
+        train_data = {'embeds': data['embeds'][train_idx, :],
+                    'preds': data['preds'][train_idx, :],
+                    'labels': data['labels'][train_idx]}
 
+        test_data = {'embeds': data['embeds'][test_idx, :],
+                    'preds': data['preds'][test_idx, :],
+                    'labels': data['labels'][test_idx]}
+        
         valid_data = {'embeds': data['embeds'][valid_idx, :],
                     'preds': data['preds'][valid_idx, :],
                     'labels': data['labels'][valid_idx]}
-    else:
-        calib_data = {'preds': data['preds'][calib_idx, :],
-            'labels': data['labels'][calib_idx].astype(int)}
-        valid_data = {'preds': data['preds'][valid_idx, :],
-                    'labels': data['labels'][valid_idx].astype(int)}
 
-    return valid_data, calib_data
+    else:
+        train_data = {'preds': data['preds'][train_idx, :],
+                      'labels': data['labels'][train_idx].astype(int)}
+
+        test_data = {'preds': data['preds'][test_idx, :],
+                      'labels': data['labels'][test_idx].astype(int)}
+
+        valid_data = {'preds': data['preds'][valid_idx, :],
+                    'labels': data['labels'][valid_idx]}
+
+
+    return {'train': train_data,
+            'valid': valid_data,
+            'test': test_data}
 
 
 def platt(logits, labels, batch_size=128, max_iters=10, lr=0.01, epsilon=0.01):
@@ -230,7 +252,8 @@ if __name__ == "__main__":
 
     mets_agg = MetsAgg()
     for s in tqdm(range(reps)):
-        valid_data, calib_data = split_data(data, n_calib, seed=str)
+        splited_data = split_data(data, n_calib, seed=s)
+        valid_data, calib_data = splited_data['train'], splited_data['test']
         mets = calibrate_and_calc(calib_data['preds'], calib_data['labels'],
                                 valid_data['preds'], valid_data['labels'],
                                 score_class=RegScore, alpha=alpha, ts=ts)
@@ -240,7 +263,8 @@ if __name__ == "__main__":
     
     mets_agg = MetsAgg()
     for s in tqdm(range(reps)):
-        valid_data, calib_data = split_data(data, n_calib, seed=s)
+        splited_data = split_data(data, n_calib, seed=s)
+        valid_data, calib_data = splited_data['train'], splited_data['test']
         mets = calibrate_and_calc(calib_data['preds'], calib_data['labels'],
                                   valid_data['preds'], valid_data['labels'],
                                   score_class=APSScore, alpha=alpha, ts=ts)

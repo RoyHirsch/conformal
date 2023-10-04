@@ -157,10 +157,8 @@ class APS(ConformalBase):
                 cumsum_p = np.cumsum(sorted_p)            
                 ind = np.where(cumsum_p >= (s - 1e-7))[0][0]
             except:
-                print(s)
-                print(cumsum_p)
-
-            
+                logging.info('The threshold is {:.3f} is too high, taking the whole labels'.format(s))
+                ind = len(p)
             if self.score_clip_value and s == np.float32(self.score_clip_value):
                 ind =- 1
             sets.append(tuple(argsort_p[:ind + 1]))

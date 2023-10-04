@@ -31,6 +31,23 @@ def get_calib_and_val_datasets(train_dl, val_dl, n_calib):
 
 def naive(train_dl, val_dl, n_calib, alpha=0.1):
     cal_probs, cal_labels, val_probs, val_labels = get_calib_and_val_datasets(train_dl, val_dl, n_calib)
+    sorted_val_probs = np.sort(val_probs, 1)[:,::-1]
+    argsorted_val_probs = np.argsort(val_probs, 1)[:,::-1]
+    cumsum_val_probs = np.cumsum(sorted_val_probs, 1)
+    thresh = 1. - alpha
+
+    sets = []
+    scores = []
+    for p, indxs in zip(cumsum_val_probs, argsorted_val_probs):
+        i = np.where(p >= thresh)[0][0]
+        scores.append(p[i])
+        sets.append(tuple(indxs[:i + 1]))
+    scores = np.asarray(scores)
+    return (sets, val_labels)
+
+
+def score(train_dl, val_dl, n_calib, alpha=0.1):
+    cal_probs, cal_labels, val_probs, val_labels = get_calib_and_val_datasets(train_dl, val_dl, n_calib)
     n = len(cal_labels)
 
     # 1: get conformal scores. n = calib_Y.shape[0]
@@ -63,35 +80,10 @@ def aps(train_dl, val_dl, n_calib, alpha=0.1):
     val_pi = val_probs.argsort(1)[:, ::-1]
     val_srt = np.take_along_axis(val_probs, val_pi, axis=1).cumsum(axis=1)
     prediction_sets = np.take_along_axis(val_srt <= qhat, val_pi.argsort(axis=1), axis=1)
+
     sets = []
     for i in range(len(prediction_sets)):
         sets.append(tuple(np.where(prediction_sets[i, :] != 0)[0]))
-    return (sets, val_labels)
-
-
-def my_aps(train_dl, val_dl, n_calib, alpha=0.1):
-    cal_probs, cal_labels, val_probs, val_labels = get_calib_and_val_datasets(train_dl, val_dl, n_calib)
-    n = len(cal_labels)
-    scores = []
-    for p, l in zip(cal_probs, cal_labels):
-        true_class_p = p[l]
-        score = np.sum(p[p >= true_class_p])
-        scores.append(score)
-    calib_scores = np.asarray(scores, dtype=np.float64)
-
-    qhat = np.quantile(
-        calib_scores, np.ceil((n + 1) * (1 - alpha)) / n, interpolation="higher")
-
-    sets = []
-    for s, p, in zip(scores, val_probs):
-        sorted_p = np.sort(p)[::-1]
-        argsort_p = np.argsort(p)[::-1]
-        cumsum_p = np.cumsum(sorted_p)
-        inds = np.where(cumsum_p >= qhat)[0]
-        if len(inds):
-            sets.append(tuple(argsort_p[:inds[0] + 1]))
-        else:
-            print('Error')
     return (sets, val_labels)
 
 
@@ -167,6 +159,7 @@ def raps(train_dl, val_dl, n_calib, alpha=0.1, lam_reg=0.01, k_reg=5, disallow_z
     indicators = (val_srt_reg.cumsum(axis=1) - np.random.rand(n_val,1)*val_srt_reg) <= qhat if rand else val_srt_reg.cumsum(axis=1) - val_srt_reg <= qhat
     if disallow_zero_sets: indicators[:,0] = True
     prediction_sets = np.take_along_axis(indicators,val_pi.argsort(axis=1),axis=1)
+    
     sets = []
     for i in range(len(prediction_sets)):
         sets.append(tuple(np.where(prediction_sets[i, :] != 0)[0]))
@@ -205,6 +198,10 @@ def calc_baseline_mets(train_dl, val_dl, n_calib=0, alpha=0.1,
         sets, labels = naive(train_dl, val_dl, n_calib, alpha)
         mets['naive'] = calc_conformal_mets(sets, labels)
 
+    if 'score' in model_names:
+        sets, labels = score(train_dl, val_dl, n_calib, alpha)
+        mets['score'] = calc_conformal_mets(sets, labels)
+
     if 'aps' in model_names:
         sets, labels = aps(train_dl, val_dl, n_calib, alpha)
         mets['aps'] = calc_conformal_mets(sets, labels)
@@ -225,10 +222,12 @@ def calc_baseline_mets(train_dl, val_dl, n_calib=0, alpha=0.1,
 
 
 if __name__ == '__main__':
-    from experiment import get_conformal_module, get_config
+    from config import get_config_by_name
+    from conformal import get_conformal_module
     from data import get_dataloaders
 
-    config = get_config()
+    config = get_config_by_name('tissuemnist')
+    config.plat_scaling = True
     conformal_module = get_conformal_module(config.conformal_module_name)
 
     dls, t = get_dataloaders(config, conformal_module)
