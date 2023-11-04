@@ -32,11 +32,20 @@ def load_pickle(file_path):
     return data
 
 
-def split_data(data, n_train, n_test=0, n_valid=None, seed=None):
+def split_data(data, par_test=0.15, par_valid=None, seed=None):
     labels = data['labels']
     n = len(labels)
     idx = np.arange(n)
     
+    if par_valid:
+        n_train = int(n * (1. - (par_test + par_valid)))
+        n_valid = int(n * par_valid)
+        n_test = int(n * par_test)
+    else:
+        n_train = int(n * (1. - (par_test)))
+        n_valid = 0
+        n_test = int(n * par_test)
+
     logging.info(f'Split {n} samples to train/val/test : {n_train}/{n_valid}/{n_test}')
     assert n_train + n_test + n_valid <= n
 
@@ -252,7 +261,7 @@ if __name__ == "__main__":
 
     mets_agg = MetsAgg()
     for s in tqdm(range(reps)):
-        splited_data = split_data(data, n_calib, seed=s)
+        splited_data = split_data(data, seed=s)
         valid_data, calib_data = splited_data['train'], splited_data['test']
         mets = calibrate_and_calc(calib_data['preds'], calib_data['labels'],
                                 valid_data['preds'], valid_data['labels'],
@@ -263,7 +272,7 @@ if __name__ == "__main__":
     
     mets_agg = MetsAgg()
     for s in tqdm(range(reps)):
-        splited_data = split_data(data, n_calib, seed=s)
+        splited_data = split_data(data, seed=s)
         valid_data, calib_data = splited_data['train'], splited_data['test']
         mets = calibrate_and_calc(calib_data['preds'], calib_data['labels'],
                                   valid_data['preds'], valid_data['labels'],

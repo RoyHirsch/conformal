@@ -8,22 +8,59 @@ import copy
 import logging
 
 
-def calibrate_residual(calib_true_scores, calib_pred_scores, 
-                       valid_true_scores, valid_pred_scores, 
-                       alpha):
+def divide(probs, alpha):
+    below_indxs = np.where(probs < (1. - alpha))[0]
+    above_indxs = np.where(probs >= (1. - alpha))[0]
+    return below_indxs, above_indxs
 
-    # get the quantile from the residuals
-    diff = calib_true_scores - calib_pred_scores
+
+def calc_correction_bias(diff, alpha):
     n = len(diff)
     qhat = np.quantile(
         diff, np.ceil((n + 1) * (1 - alpha)) / n, interpolation="higher")
+    return qhat
 
-    # modify the validation scores
-    valid_pred_scores = copy.deepcopy(valid_pred_scores) + qhat
-    n_over_one = (valid_pred_scores >= 1.).sum() / len(valid_pred_scores)
-    logging.info('Residuals correction is {:.3f}, clip {:.2f}% of the samples'.format(
-        qhat, n_over_one * 100.))
-    return np.minimum(valid_pred_scores, (1 - alpha)), qhat
+def get_copied_value(d, key):
+    return copy.deepcopy(np.asarray(d[key]))
+
+def calibrate_residual(calib_outputs, 
+                       valid_outputs, 
+                       alpha, 
+                       method_name='add'):
+
+    calib_true_scores = get_copied_value(calib_outputs, 'true_scores')
+    calib_pred_scores = get_copied_value(calib_outputs, 'pred_scores')
+    calib_pred_scores = np.clip(calib_pred_scores, a_min=0.01, a_max=0.99)
+    calib_probs = get_copied_value(calib_outputs, 'cls_probs').max(1)
+
+    valid_pred_scores = get_copied_value(valid_outputs, 'pred_scores')
+    valid_pred_scores = np.clip(valid_pred_scores, a_min=0.01, a_max=0.99)
+    valid_probs = get_copied_value(valid_outputs, 'cls_probs').max(1)
+
+    if method_name == 'add':
+        diff = calib_true_scores - calib_pred_scores
+    elif method_name == 'power':
+        diff = np.log(np.asarray(calib_pred_scores)) / np.log(np.asarray(calib_true_scores))
+    else:
+        raise ValueError
+
+    calib_below_indxs, calib_above_indxs = divide(calib_probs, alpha)
+    qhat_below = calc_correction_bias(diff[calib_below_indxs], alpha)
+    qhat_above = calc_correction_bias(diff[calib_above_indxs], alpha)
+
+    modified_valid_pred_scores = []
+    for score, prob in zip(valid_pred_scores, valid_probs):
+        if prob < (1. - alpha):
+            modified_valid_pred_scores.append(score + qhat_below)
+        else:
+            modified_valid_pred_scores.append(score + qhat_above)
+
+    modified_valid_pred_scores = np.asarray(modified_valid_pred_scores)
+    n_over_one = (modified_valid_pred_scores >= 1.).sum() / len(modified_valid_pred_scores)
+    logging.info('Residuals correction is [{:.3f}, {:.3f}], clip {:.2f}% of the samples'.format(
+        qhat_below, qhat_above, n_over_one * 100.))
+    modified_valid_pred_scores = np.clip(modified_valid_pred_scores, a_min=0.01, a_max=1 - alpha)
+    return modified_valid_pred_scores, qhat_below, qhat_above
 
 
 def get_percentile(scores, alpha=0.1):
@@ -205,7 +242,7 @@ if __name__ == '__main__':
     alpha = 0.1
 
     data = load_pickle(file_name)
-    train_data, val_data = split_data(data, 40000, seed=42)
+    train_data, val_data = split_data(data, seed=42)
     print('Train/Calib shape: {} | Val shape: {}'.format(train_data['labels'].shape,
                                                          val_data['labels'].shape))
 

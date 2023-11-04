@@ -40,8 +40,7 @@ def run_experiment(config):
     train_dl = dls['train']
     valid_dl = dls['valid']
     test_dl = dls['test']
-    # baseline_mets = calc_baseline_mets(train_dl, valid_dl, alpha=config.alpha)
-    baseline_mets = {}
+    baseline_mets = calc_baseline_mets(train_dl, valid_dl, alpha=config.alpha, k_raps=config.k_raps)
 
     # if use clipping, need to re-calc the scores for the datasets
     if config.use_score_clipping:
@@ -93,6 +92,7 @@ def run_experiment(config):
                 valid_loader=valid_dl)
 
     # predict regression results for the trained model
+    conformal_module.score_clip_value = 0.99
     train_predict_out, train_mets = predict_and_report_mets(
         conformal_module, trainer, model, train_dl, fold_name='Train')
 
@@ -103,12 +103,11 @@ def run_experiment(config):
         conformal_module, trainer, model, test_dl, fold_name='Test')
 
     # calibrate the predicted scores
-    calibrated_test_pred_scores, qhat = calibrate_residual(
-        train_predict_out['true_scores'], # todo
-        train_predict_out['pred_scores'],
-        test_predict_out['true_scores'],
-        test_predict_out['pred_scores'], 
-        config.alpha)
+    calibrated_test_pred_scores, qhat_below, qhat_above = calibrate_residual(
+        train_predict_out,
+        test_predict_out, 
+        config.alpha,
+        config.method_name)
     
     conformal_module = get_conformal_module(config.conformal_module_name)
     sets = conformal_module.get_sets(calibrated_test_pred_scores,
@@ -124,7 +123,8 @@ def run_experiment(config):
     if config.dump_log:
         df_mets.to_csv(os.path.join(config.exp_dir, 'results.csv'))
 
-    calibrated_test_mets['qhat'] = qhat
+    calibrated_test_mets['qhat_below'] = qhat_below
+    calibrated_test_mets['qhat_above'] = qhat_above
     return {'history': trainer.history,
             'train_out': train_predict_out,
             'val_out': val_predict_out,
@@ -137,7 +137,7 @@ def run_experiment(config):
 
 
 if __name__ == '__main__':
-    config = get_config_by_name('organamnist')
+    config = get_config_by_name('tissuemnist')
     utils.seed_everything(config.seed)
     utils.create_logger(config.exp_dir, config.dump_log)
     outputs = run_experiment(config)

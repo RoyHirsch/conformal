@@ -119,12 +119,12 @@ def get_model(model_name):
 
 
 def main_medmnist():
-    dataset_name = 'organamnist'
-    device = torch.device('cuda:1')
+    dataset_name = 'pathmnist'
+    device = torch.device('cuda:2')
     BATCH_SIZE = 128
     out_dir = '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist'
-    out_file_name = 'organmnist_test.pickle'
-    include_val = True
+    out_file_name = f'{dataset_name}_test.pickle'
+    include_val = False
     
     download = True
     info = INFO[dataset_name]

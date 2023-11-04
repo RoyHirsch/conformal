@@ -6,7 +6,7 @@ from scipy.special import softmax
 import torch
 import torch.nn as nn
 import torch.optim as optim
-
+from tqdm import tqdm
 
 def save_pickle(data, file_path):
     with open(file_path, 'wb') as file:
@@ -23,12 +23,12 @@ def get_logits_dataloader(logits, labels, batch_size=64, shuffle=False, pin_memo
     return dataloader
 
 
-def platt_logits(calib_loader, max_iters=10, lr=0.01, epsilon=0.01):
+def platt_logits(calib_loader, max_iters=100, lr=0.01, epsilon=0.005):
     nll_criterion = nn.CrossEntropyLoss().cuda()
 
-    T = nn.Parameter(torch.Tensor([1.3]).cuda())
+    T = nn.Parameter(torch.Tensor([1.]).cuda())
     optimizer = optim.SGD([T], lr=lr)
-    for iter in range(max_iters):
+    for iter in tqdm(range(max_iters)):
         T_old = T.item()
         for x, targets in calib_loader:
             optimizer.zero_grad()
@@ -161,15 +161,14 @@ def eval_sets(sets, labels, print_bool=True):
 if __name__ == '__main__':
     from evaluate import load_pickle, split_data
     
-    n_calib = 20000
-    n_valid = 20000
+    par_test = 0.2
     alpha = 0.1
     file_name = '/home/royhirsch/conformal/data/embeds_n_logits/imnet1k_r152/valid.pickle'
 
     all_mets = {'acc': [], 'size': []}
     data = load_pickle(file_name)
     for i in range(20):
-        valid_data, calib_data = split_data(data, n_calib, n_valid=n_valid, seed=i)
+        valid_data, calib_data = split_data(data, par_test=par_test, seed=i)
         calib_out = calib(calib_data['preds'], calib_data['labels'], alpha)
         valid_sets = predict_sets(valid_data['preds'], calib_out['qhat'], calib_out['t'])
         mets = eval_sets(valid_sets, valid_data['labels'], print_bool=False)

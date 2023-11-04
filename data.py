@@ -22,17 +22,6 @@ class ScoresDataset(torch.utils.data.Dataset):
         
 
     def __getitem__(self, i):
-        # if self.rand:
-        #     if random.random() < self.rand:
-        #         pass
-        #     else:
-        #         tau = random.random()
-        #         j = random.choice(range(self.__len__()))
-        #         return {'embeds': interpolate(self.embeds[i], self.embeds[j], tau),
-        #                 'probs': interpolate(self.cls_probs[i], self.cls_probs[j], tau),
-        #                 'labels': interpolate(self.cls_labels[i], self.cls_labels[j], tau),
-        #                 'scores': interpolate(self.scores[i], self.scores[j], tau)}
-
         return {'embeds': self.embeds[i],
                 'probs': self.cls_probs[i],
                 'labels': self.cls_labels[i],
@@ -56,7 +45,7 @@ def get_dataloader(embeds, cls_logits, cls_labels, scores,
 
 def read_and_split(config):
     data = load_pickle(config.file_name)
-    return split_data(data, config.num_train, config.num_test, config.num_valid, seed=config.seed)
+    return split_data(data, config.par_test, config.par_valid, seed=config.seed)
 
 
 def get_dataloaders(config, conformal_module, get_data_func=read_and_split):

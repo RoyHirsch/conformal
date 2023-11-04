@@ -102,6 +102,11 @@ def aps_randomized(train_dl, val_dl, n_calib, alpha=0.1, randomized=True, no_zer
         cal_scores = cal_softmax_correct_class
     else:
         cumsum_index = np.where(cal_srt == cal_softmax_correct_class[:,None])[1]
+        if cumsum_index.shape[0] != cal_srt.shape[0]:
+            _, unique_indices = np.unique(np.where(
+                cal_srt == cal_softmax_correct_class[:,None])[0], return_index=True)
+            cumsum_index = cumsum_index[unique_indices]
+
         high = cal_softmax_correct_class
         low = np.zeros_like(high)
         low[cumsum_index != 0] = cal_srt[np.where(cumsum_index != 0)[0], cumsum_index[cumsum_index != 0]-1]
@@ -191,7 +196,8 @@ def calc_conformal_mets(sets, labels):
 
 
 def calc_baseline_mets(train_dl, val_dl, n_calib=0, alpha=0.1,
-                       model_names=['naive', 'aps', 'aps_randomized', 'raps', 'raps_randomized']):
+                       model_names=['naive', 'aps', 'aps_randomized', 'raps', 'raps_randomized'],
+                       k_raps=5):
     mets = {}
 
     if 'naive' in model_names:
@@ -211,15 +217,77 @@ def calc_baseline_mets(train_dl, val_dl, n_calib=0, alpha=0.1,
         mets['aps_randomized'] = calc_conformal_mets(sets, labels)
 
     if 'raps' in model_names:
-        sets, labels = raps(train_dl, val_dl, n_calib, alpha, rand=False)
+        sets, labels = raps(train_dl, val_dl, n_calib, alpha, rand=False, k_reg=k_raps)
         mets['raps'] = calc_conformal_mets(sets, labels)
     
     if 'raps_randomized' in model_names:
-        sets, labels = raps(train_dl, val_dl, n_calib, alpha, rand=True)
+        sets, labels = raps(train_dl, val_dl, n_calib, alpha, rand=True, k_reg=k_raps)
         mets['raps_randomized'] = calc_conformal_mets(sets, labels)
 
     return mets
 
+
+def calc_baseline_details(train_dl, val_dl, n_calib=0, alpha=0.1,
+                          model_names=['naive', 'aps', 'aps_randomized', 'raps', 'raps_randomized'],
+                          k_raps=5):
+    
+    def helper(sets, labels):
+        set_lens = []
+        hits = []
+        for s, l in zip(sets, labels):
+            set_lens.append(len(s))
+            sets.append(s)
+            if l in s:
+                hits.append(1)
+            else:
+                hits.append(0)
+        return hits, set_lens
+    
+    mets = {}
+
+    if 'naive' in model_names:
+        sets, labels = naive(train_dl, val_dl, n_calib, alpha)
+        hits, set_lens = helper(sets, labels)
+        mets['naive_hits'] = hits
+        mets['naive_size'] = set_lens
+        mets['naive_set'] = sets
+
+    if 'score' in model_names:
+        sets, labels = score(train_dl, val_dl, n_calib, alpha)
+        hits, set_lens = helper(sets, labels)
+        mets['score_hits'] = hits
+        mets['score_size'] = set_lens
+        mets['score_set'] = sets
+
+    if 'aps' in model_names:
+        sets, labels = aps(train_dl, val_dl, n_calib, alpha)
+        hits, set_lens = helper(sets, labels)
+        mets['aps_hits'] = hits
+        mets['aps_size'] = set_lens
+        mets['aps_set'] = sets
+
+    if 'aps_randomized' in model_names:
+        sets, labels = aps_randomized(train_dl, val_dl, n_calib, alpha)
+        hits, set_lens = helper(sets, labels)
+        mets['aps_rand_hits'] = hits
+        mets['aps_rand_size'] = set_lens
+        mets['aps_rand_set'] = sets
+
+    if 'raps' in model_names:
+        sets, labels = raps(train_dl, val_dl, n_calib, alpha, rand=False, k_reg=k_raps)
+        hits, set_lens = helper(sets, labels)
+        mets['raps_hits'] = hits
+        mets['raps_size'] = set_lens
+        mets['raps_set'] = sets
+    
+    if 'raps_randomized' in model_names:
+        sets, labels = raps(train_dl, val_dl, n_calib, alpha, rand=True, k_reg=k_raps)
+        hits, set_lens = helper(sets, labels)
+        mets['raps_rand_hits'] = hits
+        mets['raps_rand_size'] = set_lens
+        mets['raps_rand_set'] = sets
+
+    return mets
 
 if __name__ == '__main__':
     from config import get_config_by_name

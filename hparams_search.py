@@ -89,15 +89,15 @@ def random_search(base_config, scan_params, num=3):
 
 if __name__ == '__main__':
     scan_params = {'lr': [1e-3, 5e-4, 1e-4],
-                   'wd': [1e-6],
-                   'hidden_dim': [32, 128],
-                   'drop_rate': [0, 0.3, 0.5],
-                   'num_epochs': [70, 100, 120]}
+                   'wd': [1e-6, 1e-5, 1e-4],
+                   'hidden_dim': [128, 256, 512],
+                   'drop_rate': [0, 0.3],
+                   'num_epochs': [40, 70, 100]}
     
     dataset_name= 'tissuemnist'
-    name = f'{dataset_name}_alpha=0.05_10r_0310'
+    name = f'{dataset_name}_alpha=0.05_2610'
     out_dir = f'/home/royhirsch/conformal/exps/{dataset_name}'
-    gpu_num = 0
+    gpu_num = 1
 
     config = get_config_by_name(dataset_name)
     config.name = name

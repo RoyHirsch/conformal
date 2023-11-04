@@ -1,15 +1,14 @@
 import os
 import copy
-import random
-from tqdm import tqdm
-from itertools import product
 import numpy as np
 import pandas as pd
 import logging
+import torch
 
 from experiment import run_experiment
 from config import get_config_by_name
 import utils
+
 
 class ExperimentsLogger():
     def __init__(self, save_dir, file_name='scan_res.csv',
@@ -81,15 +80,17 @@ def modify_config(base_config, params_to_modify):
 if __name__ == '__main__':
 
     dataset_name= 'organamnist'
-    name = f'{dataset_name}_10r_0410'
+    name = f'{dataset_name}_alpha=0.1_0211'
     out_dir = f'/home/royhirsch/conformal/exps/{dataset_name}'
     num_repetitions = 10
-    gpu_num = 1
+    gpu_num = 3
 
     config = get_config_by_name(dataset_name)
     config.name = name
     config.out_dir = out_dir
     config.gpu_num = gpu_num
+    config.device = torch.device('cuda:{}'.format(config.gpu_num) if torch.cuda.is_available() else 'cpu')
+
     config.exp_dir = os.path.join(config.out_dir, name)
     config.dump_log = True
     
