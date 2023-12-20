@@ -11,7 +11,6 @@ _PER_DATASET_CONFIG = {
         'dataset_name' : 'imnet_r152',
         'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/imnet1k_r152/valid.pickle',
         'input_dim': 2048, 
-        'num_classes': 1000,
         # 'hidden_dim' : 32,
         # 'lr': 1e-4,
         # 'wd': 1e-6,
@@ -24,7 +23,6 @@ _PER_DATASET_CONFIG = {
         'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/cifar100/resnet56/val.pickle',
         'input_dim': 64, 
         'hidden_dim' : 64,
-        'num_classes': 100,
         'lr': 1e-4,
         'wd': 1e-5,
         'num_epochs': 120,
@@ -36,7 +34,6 @@ _PER_DATASET_CONFIG = {
         'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/cifar10/resnet56/val.pickle',
         'input_dim': 64, 
         'hidden_dim' : 32,
-        'num_classes': 10,
         'lr': 1e-4,
         'wd': 1e-6,
         'num_epochs': 140,
@@ -48,7 +45,6 @@ _PER_DATASET_CONFIG = {
         'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/cifar10/resnet20/val.pickle',
         'input_dim': 64, 
         'hidden_dim' : 32,
-        'num_classes': 10,
         'lr': 1e-4,
         'wd': 1e-6,
         'num_epochs': 100,
@@ -59,7 +55,6 @@ _PER_DATASET_CONFIG = {
         'dataset_name' : 'tissuemnist',
         'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist/tissuemnist_test.pickle',
         'hidden_dim' : 512,
-        'num_classes': 8,
     },
     
     'organamnist': {
@@ -114,7 +109,7 @@ def modify_config(base_config, params_to_modify):
 
 def get_config():
     
-    cfg = config_dict.ConfigDict(type_safe=False)
+    cfg = config_dict.ConfigDict()
 
     # experiment
     cfg.name = 'tmp'
@@ -135,7 +130,6 @@ def get_config():
     cfg.par_test = 0.08
     cfg.batch_size = 128
     cfg.num_workers = 4
-    cfg.num_classes = 8
     cfg.pin_memory = True
     
     # conformal
@@ -149,8 +143,7 @@ def get_config():
     cfg.input_dim = 2048
     cfg.norm = False
     cfg.drop_rate = 0.0
-    cfg.hidden_dim= 32
-    cfg.out_dim = 1
+    cfg.hidden_dim = 32
 
     # optim
     cfg.optimizer_name = 'adamw'
