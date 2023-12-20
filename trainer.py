@@ -75,7 +75,7 @@ class Trainer():
         device = self.config.device if device == None else device
         for k, v in batch.items():
             if isinstance(v, torch.Tensor):
-                if k in ['scores', 'embeds']:
+                if k in ['scores', 'embeds', 'probs']:
                     batch[k] = v.to(self.config.device)
         return batch
 
@@ -83,11 +83,16 @@ class Trainer():
         labels = batch['scores']
         return self.transform.label_transform(labels)
 
-    def calc_loss(self, preds, labels):
+    def get_input(self, batch):
+        return batch['embeds']
+
+    def calc_loss(self, preds, batch):
+        labels = self.get_label(batch)
+        # preds = torch.maximum(torch.minimum(preds.squeeze(), torch.tensor(0.9999)), batch['probs'].max(1)[0])
         return self.criteria(preds.squeeze(), labels)
     
     def forward(self, model, batch):
-        out = model(batch['embeds'])
+        out = model(self.get_input(batch))
         return out
     
     def _log_mets(self, d, epoch, mode=''):
@@ -103,7 +108,12 @@ class Trainer():
             batch = self.to_device(batch)
             labels = self.get_label(batch)
             predictions = self.forward(model, batch)
-            loss = self.calc_loss(predictions, labels)
+
+            # TODO
+            # predictions = torch.clamp(predictions.squeeze(), min=0., max=1.)
+            # predictions = (batch['probs'].max(1)[0] * predictions) + (1. - predictions)
+
+            loss = self.calc_loss(predictions, batch)
 
             loss.backward()
             optimizer.step()
@@ -120,7 +130,12 @@ class Trainer():
                 batch = self.to_device(batch)
                 labels = self.get_label(batch)
                 predictions = self.forward(model, batch)
-                loss = self.calc_loss(predictions, labels)
+
+                # TODO
+                # predictions = torch.clamp(predictions.squeeze(), min=0., max=1.)
+                # predictions = (batch['probs'].max(1)[0] * predictions) + (1. - predictions)
+
+                loss = self.calc_loss(predictions, batch)
 
                 met.update(predictions, labels)
                 met.update_loss(loss.item())

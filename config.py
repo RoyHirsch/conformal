@@ -5,6 +5,51 @@ from ml_collections import config_dict
 
 
 _PER_DATASET_CONFIG = {
+
+    'imnet_r152': {
+        'out_dir' : '/home/royhirsch/conformal/exps/cifar10',
+        'dataset_name' : 'imnet_r152',
+        'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/imnet1k_r152/valid.pickle',
+        'input_dim': 2048, 
+        # 'hidden_dim' : 32,
+        # 'lr': 1e-4,
+        # 'wd': 1e-6,
+        # 'num_epochs': 140,
+    },
+    
+    'cifar100_r56': {
+        'out_dir' : '/home/royhirsch/conformal/exps/cifar100',
+        'dataset_name' : 'cifar100_r56',
+        'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/cifar100/resnet56/val.pickle',
+        'input_dim': 64, 
+        'hidden_dim' : 64,
+        'lr': 1e-4,
+        'wd': 1e-5,
+        'num_epochs': 120,
+    },
+
+    'cifar10_r56': {
+        'out_dir' : '/home/royhirsch/conformal/exps/cifar10',
+        'dataset_name' : 'cifar10_r56',
+        'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/cifar10/resnet56/val.pickle',
+        'input_dim': 64, 
+        'hidden_dim' : 32,
+        'lr': 1e-4,
+        'wd': 1e-6,
+        'num_epochs': 140,
+    },
+
+    'cifar10_r20': {
+        'out_dir' : '/home/royhirsch/conformal/exps/cifar10',
+        'dataset_name' : 'cifar10_r20',
+        'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/cifar10/resnet20/val.pickle',
+        'input_dim': 64, 
+        'hidden_dim' : 32,
+        'lr': 1e-4,
+        'wd': 1e-6,
+        'num_epochs': 100,
+    },
+
     'tissuemnist': {
         'out_dir' : '/home/royhirsch/conformal/exps/tissuemnist',
         'dataset_name' : 'tissuemnist',
@@ -19,37 +64,37 @@ _PER_DATASET_CONFIG = {
         'hidden_dim' : 32,
     },
 
-    # 'organsmnist': {
-    #     'out_dir' : '/home/royhirsch/conformal/exps/organsmnist',
-    #     'dataset_name' : 'organsmnist' ,
-    #     'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist/organsmnist_test.pickle',
-    #     'hidden_dim' : 8,
-    # },
+    'organsmnist': {
+        'out_dir' : '/home/royhirsch/conformal/exps/organsmnist',
+        'dataset_name' : 'organsmnist' ,
+        'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist/organsmnist_test.pickle',
+        'hidden_dim' : 8,
+    },
 
-    # 'organcmnist': {
-    #     'out_dir' : '/home/royhirsch/conformal/exps/organcmnist',
-    #     'dataset_name' : 'organcmnist' ,
-    #     'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist/organcmnist_test.pickle',
-    #     'hidden_dim' : 8,
-    #     'num_epochs': 50,
-    # },
+    'organcmnist': {
+        'out_dir' : '/home/royhirsch/conformal/exps/organcmnist',
+        'dataset_name' : 'organcmnist' ,
+        'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist/organcmnist_test.pickle',
+        'hidden_dim' : 8,
+        'num_epochs': 50,
+    },
 
-    # 'octmnist': {
-    #     'out_dir' : '/home/royhirsch/conformal/exps/octmnist',
-    #     'dataset_name' : 'octmnist' ,
-    #     'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist/octmnist_test.pickle',
-    #     'hidden_dim' : 8,
-    #     'num_epochs': 50,
-    #     'k_raps': 4,
-    # },
+    'octmnist': {
+        'out_dir' : '/home/royhirsch/conformal/exps/octmnist',
+        'dataset_name' : 'octmnist' ,
+        'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist/octmnist_test.pickle',
+        'hidden_dim' : 8,
+        'num_epochs': 50,
+        'k_raps': 4,
+    },
 
-    # 'pathmnist': {
-    #     'out_dir' : '/home/royhirsch/conformal/exps/pathmnist',
-    #     'dataset_name' : 'pathmnist' ,
-    #     'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist/pathmnist_test.pickle',
-    #     'hidden_dim' : 8,
-    #     'num_epochs': 100,
-    # }
+    'pathmnist': {
+        'out_dir' : '/home/royhirsch/conformal/exps/pathmnist',
+        'dataset_name' : 'pathmnist' ,
+        'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist/pathmnist_test.pickle',
+        'hidden_dim' : 8,
+        'num_epochs': 100,
+    }
 
 }
 

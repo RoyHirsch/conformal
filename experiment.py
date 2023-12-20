@@ -18,11 +18,6 @@ import utils as utils
 def predict_and_report_mets(conformal_module, trainer, model, dl, fold_name=''):
     predict_out = trainer.predict(model, dl)
 
-    if conformal_module.score_clip_value:
-        predict_out['pred_scores'] = clip_scores(
-            predict_out['pred_scores'],
-            conformal_module.score_clip_value)
-
     sets = conformal_module.get_sets(predict_out['pred_scores'], predict_out['cls_probs'])
     mets = conformal_module.get_conformal_mets(sets, predict_out['cls_labels'])
     utils.log(f'{fold_name} mets', mets)
