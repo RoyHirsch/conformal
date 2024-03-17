@@ -75,7 +75,20 @@ _PER_DATASET_CONFIG = {
         'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist/organsmnist_test.pickle',
         'hidden_dim' : 8,
     },
+    'organsmnist': {
+        'out_dir' : '/home/royhirsch/conformal/exps/organsmnist',
+        'dataset_name' : 'organsmnist' ,
+        'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist/organsmnist_test.pickle',
+        'hidden_dim' : 8,
+    },
 
+    'organcmnist': {
+        'out_dir' : '/home/royhirsch/conformal/exps/organcmnist',
+        'dataset_name' : 'organcmnist' ,
+        'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist/organcmnist_test.pickle',
+        'hidden_dim' : 8,
+        'num_epochs': 50,
+    },
     'organcmnist': {
         'out_dir' : '/home/royhirsch/conformal/exps/organcmnist',
         'dataset_name' : 'organcmnist' ,
@@ -92,7 +105,22 @@ _PER_DATASET_CONFIG = {
         'num_epochs': 50,
         'k_raps': 4,
     },
+    'octmnist': {
+        'out_dir' : '/home/royhirsch/conformal/exps/octmnist',
+        'dataset_name' : 'octmnist' ,
+        'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist/octmnist_test.pickle',
+        'hidden_dim' : 8,
+        'num_epochs': 50,
+        'k_raps': 4,
+    },
 
+    'pathmnist': {
+        'out_dir' : '/home/royhirsch/conformal/exps/pathmnist',
+        'dataset_name' : 'pathmnist' ,
+        'file_name' : '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist/pathmnist_test.pickle',
+        'hidden_dim' : 8,
+        'num_epochs': 100,
+    }
     'pathmnist': {
         'out_dir' : '/home/royhirsch/conformal/exps/pathmnist',
         'dataset_name' : 'pathmnist' ,
