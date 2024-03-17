@@ -8,8 +8,12 @@ import torch.optim as optim
 
 
 def extract(dl):
-    probs = dl.dataset.cls_probs.numpy()
-    labels = dl.dataset.cls_labels.numpy()
+    if isinstance(dl.dataset, torch.utils.data.dataset.Subset):
+        probs = dl.dataset.dataset.cls_probs.numpy()
+        labels = dl.dataset.dataset.cls_labels.numpy()
+    else:
+        probs = dl.dataset.cls_probs.numpy()
+        labels = dl.dataset.cls_labels.numpy()
     return probs, labels
 
 
@@ -43,7 +47,7 @@ def naive(train_dl, val_dl, n_calib, alpha=0.1):
         scores.append(p[i])
         sets.append(tuple(indxs[:i + 1]))
     scores = np.asarray(scores)
-    return (sets, val_labels)
+    return (sets, val_labels, thresh)
 
 
 def score(train_dl, val_dl, n_calib, alpha=0.1):
@@ -59,7 +63,7 @@ def score(train_dl, val_dl, n_calib, alpha=0.1):
     sets = []
     for i in range(len(prediction_sets)):
         sets.append(tuple(np.where(prediction_sets[i, :] != 0)[0]))
-    return (sets, val_labels)
+    return (sets, val_labels, qhat)
 
 
 def aps(train_dl, val_dl, n_calib, alpha=0.1):
@@ -84,7 +88,7 @@ def aps(train_dl, val_dl, n_calib, alpha=0.1):
     sets = []
     for i in range(len(prediction_sets)):
         sets.append(tuple(np.where(prediction_sets[i, :] != 0)[0]))
-    return (sets, val_labels)
+    return (sets, val_labels, qhat)
 
 
 def aps_randomized(train_dl, val_dl, n_calib, alpha=0.1, randomized=True, no_zero_size_sets=True):
@@ -137,7 +141,7 @@ def aps_randomized(train_dl, val_dl, n_calib, alpha=0.1, randomized=True, no_zer
     sets = []
     for i in range(len(prediction_sets)):
         sets.append(tuple(np.where(prediction_sets[i, :] != 0)[0]))
-    return (sets, val_labels)
+    return (sets, val_labels, qhat)
 
 
 def raps(train_dl, val_dl, n_calib, alpha=0.1, lam_reg=0.01, k_reg=5, disallow_zero_sets=False, rand=False):
@@ -168,10 +172,10 @@ def raps(train_dl, val_dl, n_calib, alpha=0.1, lam_reg=0.01, k_reg=5, disallow_z
     sets = []
     for i in range(len(prediction_sets)):
         sets.append(tuple(np.where(prediction_sets[i, :] != 0)[0]))
-    return (sets, val_labels)
+    return (sets, val_labels, qhat)
 
 
-def calc_conformal_mets(sets, labels):
+def calc_conformal_mets(sets, labels, qhat):
     set_lens = []
     hits = []
     hits_per_label = {}
@@ -192,6 +196,7 @@ def calc_conformal_mets(sets, labels):
     acc_per_label = np.asarray(list(acc_per_label.values()))
     return {'size_mean': set_lens.mean(),
             'size_std': set_lens.std(),
+            'qhat': qhat,
             'acc': acc}
 
 
@@ -201,28 +206,28 @@ def calc_baseline_mets(train_dl, val_dl, n_calib=0, alpha=0.1,
     mets = {}
 
     if 'naive' in model_names:
-        sets, labels = naive(train_dl, val_dl, n_calib, alpha)
-        mets['naive'] = calc_conformal_mets(sets, labels)
+        sets, labels, qhat = naive(train_dl, val_dl, n_calib, alpha)
+        mets['naive'] = calc_conformal_mets(sets, labels, qhat)
 
     if 'score' in model_names:
-        sets, labels = score(train_dl, val_dl, n_calib, alpha)
-        mets['score'] = calc_conformal_mets(sets, labels)
+        sets, labels, qhat = score(train_dl, val_dl, n_calib, alpha)
+        mets['score'] = calc_conformal_mets(sets, labels, qhat)
 
     if 'aps' in model_names:
-        sets, labels = aps(train_dl, val_dl, n_calib, alpha)
-        mets['aps'] = calc_conformal_mets(sets, labels)
+        sets, labels, qhat = aps(train_dl, val_dl, n_calib, alpha)
+        mets['aps'] = calc_conformal_mets(sets, labels, qhat)
 
     if 'aps_randomized' in model_names:
-        sets, labels = aps_randomized(train_dl, val_dl, n_calib, alpha)
-        mets['aps_randomized'] = calc_conformal_mets(sets, labels)
+        sets, labels, qhat = aps_randomized(train_dl, val_dl, n_calib, alpha)
+        mets['aps_randomized'] = calc_conformal_mets(sets, labels, qhat)
 
     if 'raps' in model_names:
-        sets, labels = raps(train_dl, val_dl, n_calib, alpha, rand=False, k_reg=k_raps)
-        mets['raps'] = calc_conformal_mets(sets, labels)
+        sets, labels, qhat = raps(train_dl, val_dl, n_calib, alpha, rand=False, k_reg=k_raps)
+        mets['raps'] = calc_conformal_mets(sets, labels, qhat)
     
     if 'raps_randomized' in model_names:
-        sets, labels = raps(train_dl, val_dl, n_calib, alpha, rand=True, k_reg=k_raps)
-        mets['raps_randomized'] = calc_conformal_mets(sets, labels)
+        sets, labels, qhat = raps(train_dl, val_dl, n_calib, alpha, rand=True, k_reg=k_raps)
+        mets['raps_randomized'] = calc_conformal_mets(sets, labels, qhat)
 
     return mets
 

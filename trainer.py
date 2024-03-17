@@ -58,10 +58,11 @@ def get_label_transform(transform_name):
 
 
 class Trainer():
-    def __init__(self, criteria, metric_logger, config):
+    def __init__(self, criteria, metric_logger, config, input_key='embeds'):
         self.criteria = criteria 
         self.metric_logger = metric_logger
         self.config = config
+        self.input_key = input_key
         self.transform = get_label_transform(config.label_transform_name)
         self.history = {}
 
@@ -84,11 +85,10 @@ class Trainer():
         return self.transform.label_transform(labels)
 
     def get_input(self, batch):
-        return batch['embeds']
+        return batch[self.input_key]
 
     def calc_loss(self, preds, batch):
         labels = self.get_label(batch)
-        # preds = torch.maximum(torch.minimum(preds.squeeze(), torch.tensor(0.9999)), batch['probs'].max(1)[0])
         return self.criteria(preds.squeeze(), labels)
     
     def forward(self, model, batch):
@@ -102,17 +102,12 @@ class Trainer():
     def train_epoch(self, model, train_loader, optimizer):
         model.train()
         met = self.metric_logger()
-        for i, batch in tqdm(enumerate(train_loader)):
+        for i, batch in enumerate(train_loader):
             optimizer.zero_grad()
 
             batch = self.to_device(batch)
             labels = self.get_label(batch)
             predictions = self.forward(model, batch)
-
-            # TODO
-            # predictions = torch.clamp(predictions.squeeze(), min=0., max=1.)
-            # predictions = (batch['probs'].max(1)[0] * predictions) + (1. - predictions)
-
             loss = self.calc_loss(predictions, batch)
 
             loss.backward()
@@ -130,11 +125,6 @@ class Trainer():
                 batch = self.to_device(batch)
                 labels = self.get_label(batch)
                 predictions = self.forward(model, batch)
-
-                # TODO
-                # predictions = torch.clamp(predictions.squeeze(), min=0., max=1.)
-                # predictions = (batch['probs'].max(1)[0] * predictions) + (1. - predictions)
-
                 loss = self.calc_loss(predictions, batch)
 
                 met.update(predictions, labels)
@@ -178,8 +168,8 @@ class Trainer():
         
         logging.info('Start training for {} epochs:'.format(num_epochs))
         logging.info('Number of batches in train epoch: {}'.format(len(train_loader)))
-
-        for epoch in range(1, num_epochs + 1):
+        it = tqdm(range(1, num_epochs + 1))
+        for epoch in it:
             logging.info('E {}/{} |'.format(epoch, num_epochs))
 
             train_mets = self.train_epoch(model, train_loader, optimizer)
@@ -192,8 +182,13 @@ class Trainer():
                 scheduler.step(valid_mets['val_loss'])
                 self._log_mets(valid_mets, epoch, mode='Validation')
                 self._history_update(valid_mets)
-                self.saver.save_model(epoch, model, optimizer, mets=valid_mets)
+                # self.saver.save_model(epoch, model, optimizer, mets=valid_mets)
 
+                train_loss = train_mets['l2']  
+                valid_loss = valid_mets['val_l2']  
+                train_r2 = train_mets['r^2']  
+                valid_r2 = valid_mets['val_r^2']  
+                it.set_description(f'[L2] train: {train_loss:.4f} | val: {valid_loss:.4f} || [R2] train: {train_r2:.3f} | val: {valid_r2:.3f}')
         # best_checkpoint = torch.load(self.saver.filepath)
         # logging.info('Loading best checkpoint for epoch: {} | best val_loss: {:.4f}'.format(
         #     best_checkpoint['epoch'], best_checkpoint['metric']))
