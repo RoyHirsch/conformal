@@ -6,6 +6,16 @@ import torch
 import torch.nn as nn
 import copy
 import logging
+import utils
+
+
+def predict_and_report_mets(conformal_module, trainer, model, dl, fold_name=''):
+    predict_out = trainer.predict(model, dl)
+
+    sets = conformal_module.get_sets(predict_out['pred_scores'], predict_out['cls_probs'])
+    mets = conformal_module.get_conformal_mets(sets, predict_out['cls_labels'])
+    utils.log(f'{fold_name} mets', mets)
+    return predict_out, mets
 
 
 def divide(probs, alpha):
@@ -20,8 +30,10 @@ def calc_correction_bias(diff, alpha):
         diff, np.ceil((n + 1) * (1 - alpha)) / n, interpolation="higher")
     return qhat
 
+
 def get_copied_value(d, key):
     return copy.deepcopy(np.asarray(d[key]))
+
 
 def calibrate_residual(calib_outputs, 
                        valid_outputs, 
@@ -59,7 +71,7 @@ def calibrate_residual(calib_outputs,
     n_over_one = (modified_valid_pred_scores >= 1.).sum() / len(modified_valid_pred_scores)
     logging.info('Residuals correction is [{:.3f}, {:.3f}], clip {:.2f}% of the samples'.format(
         qhat_below, qhat_above, n_over_one * 100.))
-    modified_valid_pred_scores = np.clip(modified_valid_pred_scores, a_min=0.01, a_max=1 - alpha)
+    # modified_valid_pred_scores = np.clip(modified_valid_pred_scores, a_min=0.01, a_max=1 - alpha)
     return modified_valid_pred_scores, qhat_below, qhat_above
 
 
@@ -171,7 +183,50 @@ class ConformalBase(ABC):
             log_prefix, mets['acc'], mets['set_size_mean'], mets['set_size_std']))
 
 
+class RAPS(ConformalBase):
+    lam_reg = 0.01
+    k_reg = 5
+    disallow_zero_sets = False
+    random = False
+    
+    def get_max_value(self, num_classes, *args):
+        return 1 + (num_classes - self.k_reg) * self.lam_reg
+
+    def get_scores(self, probs, labels):
+        n = probs.shape[0]
+        reg_vec = np.array(self.k_reg*[0,] + (probs.shape[1] - self.k_reg) * [self.lam_reg,])[None, :]
+
+        cal_pi = probs.argsort(1)[:,::-1]
+        cal_srt = np.take_along_axis(probs, cal_pi,axis=1)
+        cal_srt_reg = cal_srt + reg_vec
+        cal_L = np.where(cal_pi == labels[:,None])[1]
+        scores = cal_srt_reg.cumsum(axis=1)[np.arange(n), cal_L]
+        if self.random:
+            scores = scores - np.random.rand(n) * cal_srt_reg[np.arange(n), cal_L]
+        return scores
+
+    def get_sets(self, scores, probs):
+        scores = np.maximum(scores, probs.max(1))
+
+        reg_vec = np.array(self.k_reg*[0,] + (probs.shape[1] - self.k_reg) * [self.lam_reg,])
+        sets = []
+        for s, p, in zip(scores, probs):
+            sorted_p = np.sort(p)[::-1]
+            sorted_p += reg_vec
+            argsort_p = np.argsort(p)[::-1]
+            try:
+                cumsum_p = np.cumsum(sorted_p)            
+                ind = np.where(cumsum_p >= (s - 1e-7))[0][0]
+            except:
+                logging.info('The threshold is {:.3f} is too high, taking the whole labels'.format(s))
+                ind = len(p)
+            sets.append(tuple(argsort_p[:ind + 1]))
+        return sets
+
+
 class APS(ConformalBase):
+    def get_max_value(self, *args):
+        return 0.999999
 
     def get_scores(self, probs, labels):
         scores = []
@@ -186,6 +241,10 @@ class APS(ConformalBase):
         return scores
 
     def get_sets(self, scores, probs):
+
+        if self.score_clip_value:
+            scores = self.clip_scores(scores)
+
         sets = []
         for s, p, in zip(scores, probs):
             sorted_p = np.sort(p)[::-1]
@@ -196,8 +255,8 @@ class APS(ConformalBase):
             except:
                 logging.info('The threshold is {:.3f} is too high, taking the whole labels'.format(s))
                 ind = len(p)
-            if self.score_clip_value and s == np.float32(self.score_clip_value):
-                ind =- 1
+            # if self.score_clip_value and s == np.float32(self.score_clip_value):
+            #     ind =- 1
             sets.append(tuple(argsort_p[:ind + 1]))
         return sets
 
@@ -229,32 +288,37 @@ def get_conformal_module(conformal_module_name):
         return Naive()
     elif conformal_module_name == 'aps':
         return APS()
+    elif conformal_module_name == 'raps':
+        return RAPS()
     else:
         raise ValueError
 
 
 if __name__ == '__main__':
     from evaluate import load_pickle, split_data
+    from scipy.special import softmax
+    from conf_tools import platt_logits
 
-    file_name = '/home/royhirsch/conformal/data/embeds_n_logits/imnet1k_r152/valid.pickle'
-    conformal_module_name = 'aps'
+    file_name = '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist/tissuemnist_test.pickle'
+    conformal_module_name = 'raps'
     t = 1.
     alpha = 0.1
 
     data = load_pickle(file_name)
-    train_data, val_data = split_data(data, seed=42)
+    ds = split_data(data, seed=42)
+    train_data, val_data = ds['train'], ds['test']
+
     print('Train/Calib shape: {} | Val shape: {}'.format(train_data['labels'].shape,
                                                          val_data['labels'].shape))
-
     conformal = get_conformal_module(conformal_module_name)
-    mets = conformal.baseline_calibrate(train_data['preds'], train_data['labels'],
-                                        val_data['preds'], val_data['labels'])
-    print(mets)
 
-    qhat = conformal.calibrate_and_get_qhat(train_data['preds'], train_data['labels'], t, alpha)
-    sets = conformal.get_sets(np.full(val_data['labels'].shape, qhat, ), 
-                              np.full(val_data['labels'].shape, qhat, ), val_data['preds'], t)
-    mets = conformal.get_conformal_mets(sets, val_data['labels'])
-    mets['qhat'] = qhat
-    print(mets)
+    # mets = conformal.baseline_calibrate(train_data['preds'], train_data['labels'],
+    #                                     val_data['preds'], val_data['labels'])
+    # print(mets)
+
+    train_data['probs'] = softmax(train_data['preds'], 1)
+    val_data['probs'] = softmax(val_data['preds'], 1)
+
+    scores = conformal.get_scores(val_data['probs'], val_data['labels'])
+    sets = conformal.get_sets(scores, val_data['probs'])
 

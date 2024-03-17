@@ -195,7 +195,7 @@ def main_cifar():
     ###############
 
     dataset_name = 'cifar100'
-    model_name  = 'resnet56'
+    model_name  = 'resnet20'
     out_dir = f'/home/royhirsch/conformal/data/embeds_n_logits/{dataset_name}/{model_name}'
     out_file_name = 'val.pickle'
     data_dir =  f'/home/royhirsch/datasets/{dataset_name}'
