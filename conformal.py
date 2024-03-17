@@ -261,6 +261,43 @@ class APS(ConformalBase):
         return sets
 
 
+class RandomAPS(ConformalBase):
+    def get_max_value(self, *args):
+        return 0.999999
+
+    def get_scores(self, probs, labels):
+        scores = []
+        for p, l in zip(probs, labels):
+            true_class_p = p[l]
+            score = np.sum(p[p > true_class_p]) + 0.5 * true_class_p
+            scores.append(score)
+        scores = np.asarray(scores)
+
+        if self.score_clip_value:
+            scores = self.clip_scores(scores)
+        return scores
+
+    def get_sets(self, scores, probs):
+
+        if self.score_clip_value:
+            scores = self.clip_scores(scores)
+
+        sets = []
+        for s, p, in zip(scores, probs):
+            sorted_p = np.sort(p)[::-1]
+            argsort_p = np.argsort(p)[::-1]
+            try:
+                cumsum_p = np.cumsum(sorted_p)            
+                ind = np.where(cumsum_p >= (s - 1e-7))[0][0]
+            except:
+                logging.info('The threshold is {:.3f} is too high, taking the whole labels'.format(s))
+                ind = len(p)
+            # if self.score_clip_value and s == np.float32(self.score_clip_value):
+            #     ind =- 1
+            sets.append(tuple(argsort_p[:ind + 1]))
+        return sets
+
+
 class Naive(ConformalBase):
 
     def get_scores(self, probs, labels):
@@ -288,6 +325,8 @@ def get_conformal_module(conformal_module_name):
         return Naive()
     elif conformal_module_name == 'aps':
         return APS()
+    elif conformal_module_name == 'random_aps':
+        return RandomAPS()
     elif conformal_module_name == 'raps':
         return RAPS()
     else:
@@ -296,11 +335,11 @@ def get_conformal_module(conformal_module_name):
 
 if __name__ == '__main__':
     from evaluate import load_pickle, split_data
-    from scipy.special import softmax
-    from conf_tools import platt_logits
+    from conf_tools import get_logits_dataloader, platt_logits
+    from scipy.special import softmax 
 
     file_name = '/home/royhirsch/conformal/data/embeds_n_logits/aug/medmnist/tissuemnist_test.pickle'
-    conformal_module_name = 'raps'
+    conformal_module_name = 'aps'
     t = 1.
     alpha = 0.1
 
@@ -315,10 +354,20 @@ if __name__ == '__main__':
     # mets = conformal.baseline_calibrate(train_data['preds'], train_data['labels'],
     #                                     val_data['preds'], val_data['labels'])
     # print(mets)
+    
+    train_dataloader = get_logits_dataloader(train_data['preds'],
+                                             train_data['labels'])
+    t = platt_logits(train_dataloader)
+    t = 1
 
-    train_data['probs'] = softmax(train_data['preds'], 1)
-    val_data['probs'] = softmax(val_data['preds'], 1)
+    train_data['probs'] = softmax(train_data['preds'] / t, 1)
+    val_data['probs'] = softmax(val_data['preds'] / t, 1)
 
-    scores = conformal.get_scores(val_data['probs'], val_data['labels'])
-    sets = conformal.get_sets(scores, val_data['probs'])
+    scores = conformal.get_scores(train_data['probs'], train_data['labels'])
+    n = len(scores)
+    qhat = np.quantile(scores, np.ceil((n + 1) * (1 - alpha)) / n, interpolation="higher")
+
+    sets = conformal.get_sets(np.full_like(val_data['probs'], qhat), val_data['probs'])
+    calibrated_test_mets = conformal.get_conformal_mets(sets, val_data['labels'])
+    print(calibrated_test_mets)
 

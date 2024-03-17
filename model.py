@@ -19,13 +19,22 @@ class NN(nn.Module):
             self.norm = nn.LayerNorm(input_dim)
         if hidden_dim == None:
             self.layers = nn.Linear(input_dim, out_dim)
-        else:
+        elif isinstance(hidden_dim, int) or len(hidden_dim) == 1:
             layers = [nn.Linear(input_dim, hidden_dim)]
-            if drop_rate:
-                layers.append(nn.Dropout(p=drop_rate))
-            layers.append(nn.ReLU())
-            layers.append(nn.Linear(hidden_dim, out_dim))
-            self.layers = nn.Sequential(*layers)
+        else:
+            layers = [nn.Linear(input_dim, hidden_dim[0])]
+            for i in range(1,len(hidden_dim)):
+                if drop_rate:
+                    layers.append(nn.Dropout(p=drop_rate))
+                layers.append(nn.ReLU())
+                layers.append(nn.Linear(hidden_dim[i-1], hidden_dim[i]))
+        
+        last_in_features = layers[-1].out_features
+        if drop_rate:
+            layers.append(nn.Dropout(p=drop_rate))
+        layers.append(nn.ReLU())
+        layers.append(nn.Linear(last_in_features, out_dim))
+        self.layers = nn.Sequential(*layers)
 
         if criteria_name == 'bce':
             self.post = nn.Sigmoid()
