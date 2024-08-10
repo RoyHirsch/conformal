@@ -139,12 +139,19 @@ def get_model(model_name):
 
 
 def main_medmnist():
-    dataset_name = 'organamnist'
-    device = torch.device('cuda:2')
+    '''
+    Download the dataset and models from:
+    https://zenodo.org/records/7782114
+    
+    pathmnist, tissuemnist, organamnist
+    '''
+    
+    dataset_name = 'pathmnist'
+    device = torch.device('cuda:0')
     BATCH_SIZE = 128
     out_dir = f'home/royhirsch/conformal/data/embeds_n_logits/{dataset_name}/resnet50'
     out_file_name = f'{dataset_name}_test.pickle'
-    include_val = False
+    include_val = True
     
     download = True
     info = INFO[dataset_name]
@@ -183,7 +190,6 @@ def main_medmnist():
     print(f'Embeds shape : {all_embeds.shape}')
     print(f'Preds shape : {all_preds.shape}')
     print(f'Labels shape : {all_labels.shape}')
-    print(f'Acc: {(all_preds.argmax(1) == all_labels).mean()}')
 
     save_pickle({'embeds': all_embeds,
                  'preds': all_preds,
@@ -195,8 +201,8 @@ def main_cifar():
     # PARAMS
     ###############
 
-    dataset_name = 'cifar100'
-    model_name  = 'resnet20'
+    dataset_name = 'cifar10'
+    model_name  = 'resnet56'
     out_dir = f'/home/royhirsch/conformal/data/embeds_n_logits/{dataset_name}/{model_name}'
     out_file_name = 'val.pickle'
     data_dir =  f'/home/royhirsch/datasets/{dataset_name}'
@@ -214,7 +220,7 @@ def main_cifar():
         [transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
-    dataset = torchvision.datasets.CIFAR100(root='./data', train=False,
+    dataset = torchvision.datasets.CIFAR10(root='./data', train=False,
                                            download=True, transform=transform)
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
                                               shuffle=False, num_workers=4)
