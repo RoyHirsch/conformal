@@ -243,71 +243,11 @@ def main_cifar():
 
 
 def main_imnet1k():
-    ###############
-    # PARAMS
-    ###############
-    # imagenet data downloaded from:
-    # https://www.kaggle.com/competitions/imagenet-object-localization-challenge/data
-
-    model_name = 'resnet34'
-    out_dir = '/home/royhirsch/conformal/data/embeds_n_logits/aug/imnet1k_r34'
-    out_file_name = '200k_train.pickle'
-    data_dir =  '/home/royhirsch/datasets/imagenet1k/ILSVRC/Data/CLS-LOC/train'
-    limit = 200000
-
-    device = torch.device('cuda:1')
-    batch_size = 256
-    num_workers = 4
-
-    ###############
-    # MAIN
-    ###############
-
-    model, transform = get_model(model_name)
-    model = model.to(device)
-    model.eval()
-
-    dataset = torchvision.datasets.ImageFolder(data_dir, transform)
-    print('Found {} images'.format(len(dataset)))
-    if limit:
-        n_classes = len(dataset.classes)
-        assert limit / n_classes == limit // n_classes
-        n_per_class = int(limit / n_classes)
-
-        label2inds = {i: [] for i in range(n_classes)} 
-        for i, l in enumerate(dataset.targets):
-            label2inds[l].append(i)
-
-        filtered_samples = []
-        for i in label2inds.values():
-            ids = np.random.choice(i, n_per_class, replace=False).tolist()
-            for j in ids:
-                filtered_samples.append(dataset.samples[j])
-        
-        dataset.samples = filtered_samples
-        print('Limited dataset has {} images'.format(len(dataset)))
-
-    data_loader = torch.utils.data.DataLoader(dataset,
-                                              batch_size=batch_size,
-                                              num_workers=num_workers,
-                                              shuffle=True,
-                                              pin_memory=False)
-
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
-
-    all_embeds, all_preds, all_labels = get_embeds_logits(model, data_loader, device)
-    print(f'Embeds shape : {all_embeds.shape}')
-    print(f'Preds shape : {all_preds.shape}')
-    counts = np.bincount(all_labels)
-    print('Labels count: mean: {:.3f} max: {:.3f} min: {:.3f}'.format(counts.mean(),
-                                                                      counts.max(),
-                                                                      counts.min()))
-
-    print(f'Acc: {(all_preds.argmax(1) == all_labels).mean()}')
-    save_pickle({'embeds': all_embeds,
-                 'preds': all_preds,
-                 'labels': all_labels}, os.path.join(out_dir, out_file_name))
+    root = '/home/royhirsch/conformal/data'
+    os.system(f"gdown 1h7S6N_Rx7gdfO3ZunzErZy6H7620EbZK -O {root}/data.tar.gz")
+    os.system(f"tar -xf {root}/data.tar.gz -C ../")
+    os.system(f"rm {root}/data.tar.gz")
+    os.system(f'wget -nv -O {root}/imagenet/human_readable_labels.json -L https://raw.githubusercontent.com/anishathalye/imagenet-simple-labels/master/imagenet-simple-labels.json')
 
 
 if __name__ == "__main__":

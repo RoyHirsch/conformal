@@ -20,10 +20,15 @@ _PER_DATASET_CONFIG = {
         'input_dim': 64, 
         'num_samples': 10000,
         'num_classes': 10,
-
-
     },
 
+    'imnet1k_r152': {
+        'dataset_name' : 'imnet1k_r152',
+        'file_name' : '/home/royhirsch/conformal/data/imagenet/imagenet-resnet152.npz',
+        'input_dim': 2048, 
+        'num_samples': 50000,
+        'num_classes': 1000,
+    },
 }
 
 
