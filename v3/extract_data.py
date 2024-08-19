@@ -9,39 +9,34 @@ import torchvision
 import numpy as np
 import pickle
 from tqdm import tqdm
+from datetime import datetime
 
 import medmnist
 from medmnist import INFO, Evaluator
 import PIL
 
 
-def get_embeds_logits(model, loader, device):
-    if isinstance(model, torchvision.models.resnet.ResNet):
-        model = EmbedResnet(model)
+OUT_ROOT = '/home/royhirsch/conformal/data/embeds_n_logits'
+DATA_ROOT = '/home/royhirsch/conformal/data'
 
+
+def get_logits(model, loader, device):
     model = model.to(device)
     model.eval()
         
-    all_embeds = []
     all_preds = []
     all_labels = []
     with torch.no_grad():
         for batch in tqdm(loader):
             x = batch[0].to(device)
-            embeds = model(x)
-            preds = model.fc(embeds)
-
-            embeds = embeds.detach().cpu().numpy()
+            preds = model(x)
             preds = preds.detach().cpu().numpy()
-
-            all_embeds.append(embeds)
             all_preds.append(preds)
             all_labels.append(batch[1].numpy())
 
-    all_embeds = np.concatenate(all_embeds, 0)
     all_preds = np.concatenate(all_preds, 0)
     all_labels = np.concatenate(all_labels, 0)
-    return all_embeds, all_preds, all_labels
+    return all_preds, all_labels
 
 
 def save_pickle(data, file_path):
@@ -96,7 +91,7 @@ class EmbedResnet(nn.Module):
 
 
 def calc(model, loader, device, fold='Test'):
-    all_embeds, all_preds, all_labels = get_embeds_logits(model, loader, device)
+    all_embeds, all_preds, all_labels = get_logits(model, loader, device)
     all_labels = np.squeeze(all_labels)
     print(f'Embeds shape : {all_embeds.shape}')
     print(f'Preds shape : {all_preds.shape}')
@@ -113,7 +108,7 @@ def calc(model, loader, device, fold='Test'):
     return all_embeds, all_preds, all_labels
 
 
-def get_model(model_name):
+def get_imnet_model(model_name):
     if model_name == 'resnet18':
         weights = torchvision.models.ResNet18_Weights.DEFAULT
         preprocess = weights.transforms()
@@ -133,6 +128,22 @@ def get_model(model_name):
         weights = torchvision.models.ResNet152_Weights.DEFAULT
         preprocess = weights.transforms()
         model = torchvision.models.resnet152(weights=weights)
+        
+    elif model_name == 'resnext101':
+        weights = torchvision.models.ResNeXt101_64X4D_Weights.IMAGENET1K_V1
+        preprocess = weights.transforms()
+        model = torchvision.models.resnext101_64x4d(weights=weights)
+    
+    elif model_name == 'vitb16':
+        weights = torchvision.models.ViT_B_16_Weights.DEFAULT
+        preprocess = weights.transforms()
+        model = torchvision.models.vit_b_16(weights=weights)
+
+    elif model_name == 'vitl16':
+        weights = torchvision.models.ViT_L_16_Weights.IMAGENET1K_SWAG_E2E_V1
+        preprocess = weights.transforms()
+        model = torchvision.models.vit_l_16(weights=weights)
+
     else:
         raise NotImplementedError
     return model, preprocess
@@ -196,61 +207,98 @@ def main_medmnist():
                  'labels': all_labels}, os.path.join(out_dir, out_file_name))
 
 
-def main_cifar():
-    ###############
-    # PARAMS
-    ###############
+def main_cifar(model_name = 'resnet56', dataset_name = 'cifar10', device_num=0):
+    out_dir = os.path.join(OUT_ROOT, dataset_name, model_name)
+    out_file_name = f'{dataset_name}_{model_name}_val.pickle'
+    device = torch.device(f'cuda:{device_num}')
 
-    dataset_name = 'cifar10'
-    model_name  = 'resnet56'
-    out_dir = f'/home/royhirsch/conformal/data/embeds_n_logits/{dataset_name}/{model_name}'
-    out_file_name = 'val.pickle'
-    data_dir =  f'/home/royhirsch/datasets/{dataset_name}'
-
-    device = torch.device('cuda:1')
-    batch_size = 256
-    num_workers = 4
-
+    device = torch.device(f'cuda:{device_num}')
     model = torch.hub.load("chenyaofo/pytorch-cifar-models", f"{dataset_name}_{model_name}", pretrained=True)
-    model = EmbedCifarResnet(model)
     model = model.to(device)
     model.eval()
 
-    transform = transforms.Compose(
-        [transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+    if 'vit' in model_name:
+        mean = [0.5, 0.5, 0.5]
+        std = [0.5, 0.5, 0.5]
+    elif dataset_name == 'cifar10':
+        mean = [0.4914, 0.4822, 0.4465]
+        std = [0.2023, 0.1994, 0.2010]
+    else:
+        mean = [0.5070, 0.4865, 0.4409]
+        std = [0.2673, 0.2564, 0.2761]
 
-    dataset = torchvision.datasets.CIFAR10(root='./data', train=False,
-                                           download=True, transform=transform)
-    data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
-                                              shuffle=False, num_workers=4)
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std)
+        ])
+
+    if dataset_name == 'cifar10':
+        dataset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
+    else:
+        dataset = torchvision.datasets.CIFAR100(root='./data', train=False, download=True, transform=transform)
+    data_loader = torch.utils.data.DataLoader(dataset, batch_size=256, shuffle=False, num_workers=4)
     
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
-    all_embeds, all_preds, all_labels = get_embeds_logits(model, data_loader, device)
-    print(f'Embeds shape : {all_embeds.shape}')
+    all_preds, all_labels = get_logits(model, data_loader, device)
     print(f'Preds shape : {all_preds.shape}')
     counts = np.bincount(all_labels)
     print('Labels count: mean: {:.3f} max: {:.3f} min: {:.3f}'.format(counts.mean(),
                                                                       counts.max(),
                                                                       counts.min()))
 
-    print(f'Acc: {(all_preds.argmax(1) == all_labels).mean()}')
-    save_pickle({'embeds': all_embeds,
-                 'preds': all_preds,
-                 'labels': all_labels}, os.path.join(out_dir, out_file_name))
+    acc = (all_preds.argmax(1) == all_labels).mean()
+    print('Acc: {:.3f}'.format(acc))
+    save_pickle({
+        'preds': all_preds,
+        'labels': all_labels,
+        'metadata': {
+            'tiemdate': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'model': model_name,
+            'dataset': dataset_name,
+            'acc': acc,
+            }
+        },
+                os.path.join(out_dir, out_file_name))
 
 
-def main_imnet1k():
-    root = '/home/royhirsch/conformal/data'
-    os.system(f"gdown 1h7S6N_Rx7gdfO3ZunzErZy6H7620EbZK -O {root}/data.tar.gz")
-    os.system(f"tar -xf {root}/data.tar.gz -C ../")
-    os.system(f"rm {root}/data.tar.gz")
-    os.system(f'wget -nv -O {root}/imagenet/human_readable_labels.json -L https://raw.githubusercontent.com/anishathalye/imagenet-simple-labels/master/imagenet-simple-labels.json')
+def main_imnet1k(model_name = 'vitl16', dataset_name = 'imagenet1k', device_num=0):
+    data_root =  os.path.join(DATA_ROOT, 'imagenet-val')
+    out_dir = os.path.join(OUT_ROOT, dataset_name, model_name)
+    out_file_name = f'{dataset_name}_{model_name}_val.pickle'
+    device = torch.device(f'cuda:{device_num}')
+
+    model, transform = get_imnet_model(model_name)    
+    dataset = torchvision.datasets.ImageFolder(root=data_root, transform=transform)
+    data_loader = torch.utils.data.DataLoader(dataset, batch_size=256, shuffle=False, num_workers=4)
+    all_preds, all_labels = get_logits(model, data_loader, device)
+    
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+
+    print(f'Preds shape : {all_preds.shape}')
+    counts = np.bincount(all_labels)
+    print('Labels count: mean: {:.3f} max: {:.3f} min: {:.3f}'.format(counts.mean(),
+                                                                      counts.max(),
+                                                                      counts.min()))
+    acc = (all_preds.argmax(1) == all_labels).mean()
+    print('Acc: {:.3f}'.format(acc))
+    save_pickle({
+        'preds': all_preds,
+        'labels': all_labels,
+        'metadata': {
+            'tiemdate': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'model': model_name,
+            'dataset': dataset_name,
+            'acc': acc,
+            }
+        },
+                os.path.join(out_dir, out_file_name))
 
 
 if __name__ == "__main__":
     # main_imnet1k()
-    main_medmnist()
-    # main_cifar()
+    main_cifar()
+    # main_medmnist()
+    
