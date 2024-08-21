@@ -19,6 +19,7 @@ azcopy_linux_amd64_10.20.1/azcopy
 azcopy_linux_amd64_10.20.1/NOTICE.txt
 chestx/_model_resnet18_100_lr_1e-05_bs_128_lam_0.0001.pth
 chestx/_model_resnet50_epoch_4_20_lr_0.0001_bs_32.pth
+data/
 data/imagenet-resnet152.pickle
 data/embeds_n_logits/aug/imnet1k_r152/100k_train.pickle
 data/embeds_n_logits/aug/imnet1k_r152/200k_train.pickle
