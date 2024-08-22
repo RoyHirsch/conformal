@@ -86,11 +86,7 @@ class APS(ConformalScore):
             low = np.zeros_like(high)
             low[cumsum_index > 0] = val_srt[np.arange(n_val), cumsum_index-1][cumsum_index > 0]
             prob = (qhat - low)/(high - low)
-            # num_nans = np.isnan(prob).sum()
-            # print("Number of NaNs:", num_nans)
-            # prob = np.nan_to_num(prob, nan=0.0)
-            # prob = np.clip(prob, 0, 1)
-            rv = np.random.binomial(1,prob,size=(n_val))
+            rv = np.random.binomial(1, prob,size=(n_val))
             randomized_threshold = low
             randomized_threshold[rv == 1] = high[rv == 1]
             if self.no_zero_size_sets:
@@ -160,36 +156,28 @@ class SAPS():
         self.seed = seed
 
     def _sort_sum(self, probs):
-        indices = np.argsort(-probs, axis=1)  # Get the indices that would sort the array
-        ordered = np.take_along_axis(probs, indices, axis=1)          # Sort the array using the indices
-        cumsum = np.cumsum(ordered, axis=1)        # Compute the cumulative sum of the sorted array
+        indices = np.argsort(-probs, axis=1) 
+        ordered = np.take_along_axis(probs, indices, axis=1)
+        cumsum = np.cumsum(ordered, axis=1)
         return indices, ordered, cumsum
 
     def get_scores(self, softmax_scores, labels):
+        np.random.seed(self.seed)
         indices, ordered, cumsum = self._sort_sum(softmax_scores)
-        # Generate random values U from a uniform distribution with the same shape as the batch
         U = np.random.rand(*indices.shape)
-        # Find the index where the sorted indices equal the label for each row
         idx = np.where(indices == labels[:, np.newaxis])
-        # Compute the scores
         scores_first_rank = U[idx] * cumsum[idx]
         scores_usual = self.weight * (idx[1] - U[idx]) + ordered[:, 0]
-        # Return the appropriate scores based on the condition
         return np.where(idx[1] == 0, scores_first_rank, scores_usual)
 
     def get_sets(self, softmax_scores, qhat):
+        np.random.seed(self.seed)
         indices, ordered, cumsum = self._sort_sum(softmax_scores)
-        # Set the weights for all but the first column
-        ordered[:, 1:] = 1
-        # Recalculate the cumulative sum with the new weights
+        ordered[:, 1:] = self.weight
         cumsum = np.cumsum(ordered, axis=-1)
-        # Generate random values U from a uniform distribution with the same shape as probs
         U = np.random.rand(*softmax_scores.shape)
-        # Calculate the ordered scores
         ordered_scores = cumsum - ordered * U
-        # Sort indices to map back to the original order
         sorted_indices = np.argsort(indices, axis=-1)
-        # Gather the scores according to the original indices
         scores = np.take_along_axis(ordered_scores, sorted_indices, axis=-1)
         if qhat.ndim == 1:
             qhat = np.expand_dims(qhat, 1)
