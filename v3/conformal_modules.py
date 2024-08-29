@@ -5,6 +5,13 @@ import torch.optim as optim
 from tqdm import tqdm
 
 
+def sort_sum(probs):
+    indices = np.argsort(-probs, axis=1) 
+    ordered = np.take_along_axis(probs, indices, axis=1)
+    cumsum = np.cumsum(ordered, axis=1)
+    return indices, ordered, cumsum
+
+
 def platt_scale(logits, labels, max_iters=100, lr=0.01, epsilon=0.005):
     dataset = torch.utils.data.TensorDataset(torch.from_numpy(logits),
                                              torch.from_numpy(labels).long()) 
@@ -103,17 +110,29 @@ class RAPS(ConformalScore):
         self.no_zero_size_sets = no_zero_size_sets
         self.seed = seed
 
+
     def get_scores(self, softmax_scores, labels):
         np.random.seed(self.seed)
         reg_vec = np.array(self.k_reg * [0, ] + (softmax_scores.shape[1] - self.k_reg) * [self.lam_reg, ])[None, :]
         n = softmax_scores.shape[0]
         cal_pi = softmax_scores.argsort(1)[:, ::-1]
-        cal_srt = np.take_along_axis(softmax_scores, cal_pi, axis=1).cumsum(axis=1)
+        cal_srt = np.take_along_axis(softmax_scores, cal_pi, axis=1)
         cal_srt_reg = cal_srt + reg_vec
-        cal_L = np.where(cal_pi == labels[:,None])[1]
-        cal_scores = cal_srt_reg.cumsum(axis=1)[np.arange(n),cal_L] - np.random.rand(n) * cal_srt_reg[np.arange(n), cal_L]
+        cal_L = np.where(cal_pi == labels[:, None])[1]
+        if self.randomized:
+            cal_scores = cal_srt_reg.cumsum(axis=1)[np.arange(n),cal_L] - np.random.rand(n) * cal_srt_reg[np.arange(n), cal_L]
+        else:
+            cal_scores = cal_srt_reg.cumsum(axis=1)[np.arange(n),cal_L]
         return cal_scores
 
+    def get_est_scores(self, softmax_scores):
+        np.random.seed(self.seed)
+        reg_vec = np.array(self.k_reg * [0, ] + (softmax_scores.shape[1] - self.k_reg) * [self.lam_reg, ])[None, :]
+        n = softmax_scores.shape[0]
+        cal_pi = softmax_scores.argsort(1)[:, ::-1]
+        cal_srt = np.take_along_axis(softmax_scores, cal_pi, axis=1)
+        cal_srt_reg = cal_srt + reg_vec
+        return (cal_srt_reg.cumsum(axis=1) * softmax_scores).sum(1)
 
     def get_sets(self, softmax_scores, qhat):
         np.random.seed(self.seed)
@@ -121,7 +140,7 @@ class RAPS(ConformalScore):
         n = softmax_scores.shape[0]
 
         val_pi = softmax_scores.argsort(1)[:, ::-1]
-        val_srt = np.take_along_axis(softmax_scores, val_pi, axis=1).cumsum(axis=1)
+        val_srt = np.take_along_axis(softmax_scores, val_pi, axis=1)
         val_srt_reg = val_srt + reg_vec
         if qhat.ndim == 1:
             qhat = np.expand_dims(qhat, 1)
@@ -131,7 +150,7 @@ class RAPS(ConformalScore):
               indicators = val_srt_reg.cumsum(axis=1) - val_srt_reg <= qhat
         if self.no_zero_size_sets:
             indicators[:,0] = True
-        prediction_sets = np.take_along_axis(indicators, val_pi.argsort(axis=1),axis=1)
+        prediction_sets = np.take_along_axis(indicators, val_pi.argsort(axis=1), axis=1)
         return prediction_sets
 
 
@@ -155,15 +174,9 @@ class SAPS():
         self.no_zero_size_sets = no_zero_size_sets
         self.seed = seed
 
-    def _sort_sum(self, probs):
-        indices = np.argsort(-probs, axis=1) 
-        ordered = np.take_along_axis(probs, indices, axis=1)
-        cumsum = np.cumsum(ordered, axis=1)
-        return indices, ordered, cumsum
-
     def get_scores(self, softmax_scores, labels):
         np.random.seed(self.seed)
-        indices, ordered, cumsum = self._sort_sum(softmax_scores)
+        indices, ordered, cumsum = sort_sum(softmax_scores)
         U = np.random.rand(*indices.shape)
         idx = np.where(indices == labels[:, np.newaxis])
         scores_first_rank = U[idx] * cumsum[idx]
@@ -172,7 +185,7 @@ class SAPS():
 
     def get_sets(self, softmax_scores, qhat):
         np.random.seed(self.seed)
-        indices, ordered, cumsum = self._sort_sum(softmax_scores)
+        indices, ordered, cumsum = sort_sum(softmax_scores)
         ordered[:, 1:] = self.weight
         cumsum = np.cumsum(ordered, axis=-1)
         U = np.random.rand(*softmax_scores.shape)
@@ -182,3 +195,31 @@ class SAPS():
         if qhat.ndim == 1:
             qhat = np.expand_dims(qhat, 1)
         return scores <= qhat
+
+
+def residual_conformal_score(calib_data, eval_data, conf_score, alpha):
+    results = {}
+    cal_scores_est = conf_score.get_scores(calib_data["scores"], calib_data["scores"].argmax(1))
+    cal_scores_true = conf_score.get_scores(calib_data["scores"], calib_data["labels"])
+    
+    results["cal_scores_est"] = cal_scores_est
+    results["cal_scores_true"] = cal_scores_true
+    
+    normalizer = cal_scores_true.max() + 1e-10
+    residuales = (cal_scores_true - cal_scores_est) / (normalizer - cal_scores_est)
+    results["residuales"] = residuales
+    
+    n = len(residuales)
+    qhat = np.quantile(
+        residuales, np.ceil((n + 1) * (1 - alpha)) / n, interpolation="higher"
+    )
+    results["qhat"] = qhat
+    
+    val_scores_est = conf_score.get_scores(eval_data["scores"], eval_data["scores"].argmax(1))
+    val_scores_true = conf_score.get_scores(eval_data["scores"], eval_data["labels"])
+    results["val_scores_est"] = val_scores_est
+    results["val_scores_true"] = val_scores_true
+    val_scores_est = val_scores_est + qhat * (normalizer - val_scores_est)
+    results["val_scores_est_w_qhat"] = val_scores_est
+    results["val_prediction_sets"] = conf_score.get_sets(eval_data["scores"], val_scores_est)
+    return results
